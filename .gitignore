@@ -1,0 +1,39 @@
+# =============== #
+# Unity generated #
+# =============== #
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+
+# User-specific files
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Crash reports
+sysinfo.txt
+
+# Visual Studio cache
+.vs/
+.vscode/
+
+# JetBrains Rider
+.idea/
+
+# Other
+*.apk
+*.aab
+*.unitypackage
