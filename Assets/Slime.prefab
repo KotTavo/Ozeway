@@ -11,9 +11,8 @@ GameObject:
   - component: {fileID: 1644865339916823554}
   - component: {fileID: 7313378221816429166}
   - component: {fileID: 681997688879546004}
-  - component: {fileID: 6700181651483869609}
-  - component: {fileID: 1492370743403970855}
   - component: {fileID: 4837882818450086158}
+  - component: {fileID: 6700181651483869609}
   m_Layer: 0
   m_Name: Slime
   m_TagString: Untagged
@@ -99,30 +98,6 @@ CircleCollider2D:
   m_CompositeOrder: 0
   m_Offset: {x: 0, y: 0}
   m_Radius: 0.3
---- !u!114 &6700181651483869609
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6243790621485291592}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b2b72c48b64f1d241a2a67d8595b7f60, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SlimeNodeBehavior
---- !u!114 &1492370743403970855
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6243790621485291592}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d7918486836bb11499001ecc3d15408c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SlimeAbilityTester
 --- !u!114 &4837882818450086158
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -154,6 +129,7 @@ MonoBehaviour:
   obstacleDetectionRange: 0.7
   corePriorityForce: 15
   groundFriction: 10
+  groundCheckPercentage: 0.3
   surfaceOscillationForce: 2
   surfaceFluidity: 0.3
   maxSurfaceWobble: 0.4
@@ -166,3 +142,15 @@ MonoBehaviour:
   currentMass: 1
   currentSize: 1
   slimeColor: {r: 0.2, g: 0.8, b: 0.3, a: 0.9}
+--- !u!114 &6700181651483869609
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6243790621485291592}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b2b72c48b64f1d241a2a67d8595b7f60, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SlimeNodeBehavior

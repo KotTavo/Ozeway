@@ -8,12 +8,19 @@ public class SlimeNodeBehavior : MonoBehaviour
     private float lastStuckCheck;
     private bool isStuck = false;
     private float stuckTimer = 0f;
+    private bool isGrounded = false;
+    private int layerIndex;
+    private float maxDistanceFromCenter;
+    private float maxNodeVelocity;
 
-    public void Initialize(SlimeCharacterController controller, Rigidbody2D center)
+    public void Initialize(SlimeCharacterController controller, Rigidbody2D center, int layer, float maxDistance, float maxVelocity)
     {
         slimeController = controller;
         centerBody = center;
         nodeRigidbody = GetComponent<Rigidbody2D>();
+        layerIndex = layer;
+        maxDistanceFromCenter = maxDistance;
+        maxNodeVelocity = maxVelocity;
     }
 
     void Update()
@@ -38,6 +45,18 @@ public class SlimeNodeBehavior : MonoBehaviour
         else
         {
             stuckTimer = 0f;
+        }
+
+        // Для внешнего слоя проверяем расстояние от центра
+        if (layerIndex == 2) // surface layer
+        {
+            float distanceFromCenter = Vector3.Distance(transform.position, centerBody.transform.position);
+            if (distanceFromCenter > maxDistanceFromCenter)
+            {
+                // Возвращаем узел ближе к центру
+                Vector3 direction = (centerBody.transform.position - transform.position).normalized;
+                nodeRigidbody.AddForce(direction * 50f);
+            }
         }
     }
 
@@ -68,29 +87,60 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void ForceUnstuck()
     {
-        if (centerBody == null) return;
+        if (centerBody == null || nodeRigidbody == null) return;
 
-        // Calculate direction to center with some randomness
+        // Calculate direction back to center with some randomness
         Vector2 toCenter = (centerBody.position - nodeRigidbody.position).normalized;
         Vector2 randomDir = Random.insideUnitCircle.normalized * 0.5f;
-        Vector2 unstuckDir = (toCenter + randomDir).normalized;
+        Vector2 unstuckDirection = (toCenter + randomDir).normalized;
 
         // Teleport node closer to center
         float teleportDistance = 1f;
-        Vector2 newPosition = centerBody.position + unstuckDir * teleportDistance;
+        Vector2 newPosition = centerBody.position + unstuckDirection * teleportDistance;
         nodeRigidbody.MovePosition(newPosition);
 
         // Add force away from obstacles
-        nodeRigidbody.AddForce(unstuckDir * 200f, ForceMode2D.Impulse);
+        nodeRigidbody.AddForce(unstuckDirection * 200f, ForceMode2D.Impulse);
 
         isStuck = false;
     }
 
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject != null && collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
+
+            // Report ground contact only for surface nodes (layer 2)
+            if (layerIndex == 2)
+            {
+                slimeController.ReportSurfaceGroundContact(true);
+            }
+        }
+    }
+
+    void OnCollisionExit2D(Collision2D collision)
+    {
+        if (collision.gameObject != null && collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = false;
+
+            // Report ground contact only for surface nodes (layer 2)
+            if (layerIndex == 2)
+            {
+                slimeController.ReportSurfaceGroundContact(false);
+            }
+        }
+    }
+
     void OnCollisionStay2D(Collision2D collision)
     {
+        // Если collision или его transform равен null, выходим
+        if (collision == null || collision.transform == null || nodeRigidbody == null) return;
+
         // If node is in continuous collision and not moving much, it might be stuck
         if (nodeRigidbody.linearVelocity.magnitude < 0.2f &&
-            (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Obstacle")))
+            collision.gameObject.CompareTag("Ground"))
         {
             // Add slight force to try to unstick
             Vector2 repelDir = (nodeRigidbody.position - (Vector2)collision.transform.position).normalized;
