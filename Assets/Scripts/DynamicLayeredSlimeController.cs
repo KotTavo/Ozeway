@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using System.Linq;
 
 public class SlimeCharacterController : MonoBehaviour
 {
@@ -11,11 +12,24 @@ public class SlimeCharacterController : MonoBehaviour
     public float[] layerDistances = new float[] { 0.5f, 0.9f, 1.3f };
 
     [Header("=== СВОЙСТВА СЛОЕВ ===")]
-    public float coreStiffness = 1200f;
-    public float middleStiffness = 400f;
-    public float surfaceStiffness = 60f;
+    public float coreStiffness = 2000f;
+    public float middleStiffness = 800f;
+    public float surfaceStiffness = 100f;
     public float coreDrag = 3f;
     public float surfaceDrag = 0.5f;
+
+    [Header("=== СВОБОДНОЕ ВРАЩЕНИЕ СРЕДНИХ УЗЛОВ ===")]
+    public bool enableFreeRotation = true;
+    public float rotationFreedom = 360f;
+    public float rotationReturnForce = 5f;
+    public float maxRotationSpeed = 180f;
+
+    [Header("=== СИСТЕМА ПРОХОДА СКВОЗЬ ПРЕПЯТСТВИЯ ===")]
+    public float teleportThreshold = 3.5f;
+    public float teleportCooldown = 1f;
+    public bool enableTeleportThroughObstacles = true;
+    public float minTeleportDistance = 0.5f;
+    public float teleportForce = 30f;
 
     [Header("=== НАСТРОЙКИ ДВИЖЕНИЯ ===")]
     public float moveSpeed = 8f;
@@ -26,7 +40,7 @@ public class SlimeCharacterController : MonoBehaviour
     public float climbAssistForce = 12f;
     public float obstacleDetectionRange = 0.7f;
     public float corePriorityForce = 15f;
-    public float groundFriction = 10f;
+    public float groundFriction = 15f;
     [Range(0f, 1f)]
     public float jumpGroundPercentage = 0.2f;
 
@@ -34,6 +48,24 @@ public class SlimeCharacterController : MonoBehaviour
     public float surfaceOscillationForce = 2f;
     public float surfaceFluidity = 0.3f;
     public float maxSurfaceWobble = 0.4f;
+
+    [Header("=== СИСТЕМА СКОЛЬЖЕНИЯ И КАРАБКАНИЯ ===")]
+    public float surfaceSlideForce = 25f;
+    public float slideDetectionRange = 0.8f;
+    public float maxSlideAngle = 75f;
+    public float slideAcceleration = 2f;
+    public bool enableSurfaceSliding = true;
+    public float autoClimbForce = 35f;
+    public float climbDetectionRange = 0.6f;
+    public float maxAutoClimbHeight = 2.5f;
+    public float climbAssistMultiplier = 1.5f;
+
+    [Header("=== ИЕРАРХИЧЕСКИЕ СИЛЫ ===")]
+    public float coreToMiddleForce = 60f; // Увеличил для компенсации отсутствия пружин
+    public float middleToSurfaceForce = 35f;
+    public float hierarchicalInfluenceRadius = 2f;
+    public float maxHierarchicalForce = 100f; // Увеличил максимальную силу
+    public bool enableHierarchicalForces = true;
 
     [Header("=== ПРЕДОТВРАЩЕНИЕ СТОЛКНОВЕНИЙ ===")]
     public float nodeRepelForce = 50f;
@@ -49,15 +81,34 @@ public class SlimeCharacterController : MonoBehaviour
     public float maxSurfaceNodeDistance = 2f;
     public float maxNodeVelocity = 15f;
 
-    [Header("=== НАСТРОЙКИ ПОДНЯТИЯ ===")]
-    public float liftForce = 15f;
-    public float maxLiftHeight = 3f;
-    public float liftHeightPercent = 0.3f;
+    [Header("=== СИСТЕМА ВЫТЯГИВАНИЯ ===")]
+    public float stretchUpwardForce = 12f;
+    public float stretchHorizontalForce = 8f;
+    public float maxStretchHeight = 2.5f;
+    public float minGroundContactPercent = 0.3f;
+    public float stretchReturnSpeed = 4f;
+    public float stretchMoveSpeedMultiplier = 0.67f;
+    public float stretchJumpMultiplier = 0.5f;
+
+    [Header("=== СТАБИЛИЗАЦИЯ ПОКОЯ И СПОЛЗАНИЕ ===")]
+    public float staticFrictionForce = 25f;
+    public float velocityStoppingThreshold = 0.3f;
+    public float groundStabilizationForce = 35f;
+    public float maxStableSlopeAngle = 45f;
+    public float slideDownForce = 8f;
+    public float slopeStabilizationThreshold = 0.5f;
+    public float positionLockThreshold = 0.1f;
+    public float positionLockForce = 50f;
 
     [Header("=== ДИНАМИЧЕСКИЕ СВОЙСТВА ===")]
     public float currentMass = 1f;
     public float currentSize = 1f;
     public Color slimeColor = new Color(0.2f, 0.8f, 0.3f, 0.9f);
+
+    [Header("=== НАСТРОЙКИ СЛОЕВ UNITY ===")]
+    public string coreLayerName = "Core";
+    public string middleLayerName = "Middle";
+    public string surfaceLayerName = "Surface";
 
     // Node collections
     public List<Rigidbody2D> coreNodes { get; private set; } = new List<Rigidbody2D>();
@@ -76,7 +127,6 @@ public class SlimeCharacterController : MonoBehaviour
     private bool isJumping = false;
     private bool isHoldingS = false;
     private bool isHoldingW = false;
-    private bool isLifted = false;
     private float originalGravityScale;
 
     // Jump variables
@@ -90,19 +140,71 @@ public class SlimeCharacterController : MonoBehaviour
     private float middleLayerTimer = 0f;
     private float surfaceLayerTimer = 0f;
 
+    // Новые системы
+    private List<SlimeNodeInfo> nodeHierarchy = new List<SlimeNodeInfo>();
+    private float slideTimer = 0f;
+    private const float SLIDE_UPDATE_INTERVAL = 0.1f;
+    private int coreLayer;
+    private int middleLayer;
+    private int surfaceLayer;
+
+    // Система вращения
+    private Dictionary<Rigidbody2D, float> currentRotationAngles = new Dictionary<Rigidbody2D, float>();
+    private Dictionary<Rigidbody2D, float> targetRotationAngles = new Dictionary<Rigidbody2D, float>();
+    private Dictionary<Rigidbody2D, float> rotationUpdateTimes = new Dictionary<Rigidbody2D, float>();
+
+    // Система телепортации
+    private Dictionary<Rigidbody2D, float> lastTeleportTime = new Dictionary<Rigidbody2D, float>();
+    private Dictionary<Rigidbody2D, bool> nodeTeleportStatus = new Dictionary<Rigidbody2D, bool>();
+
+    // Система вытягивания
+    private bool isStretching = false;
+    private float currentStretchProgress = 0f;
+    private float originalMoveSpeed;
+    private float originalJumpSpeed;
+
+    // Система сползания
+    private float currentSlopeAngle = 0f;
+
+    // Система фиксации позиции
+    private bool isPositionLocked = false;
+    private Vector2 lockedPosition;
+
+    [System.Serializable]
+    public class SlimeNodeInfo
+    {
+        public Rigidbody2D node;
+        public int layerIndex;
+        public List<Rigidbody2D> influencedNodes;
+        public Rigidbody2D masterNode;
+        public Vector2 restPosition;
+        public float currentRotation;
+        public Vector2 connectionPoint;
+    }
+
     void Start()
     {
+        coreLayer = LayerMask.NameToLayer(coreLayerName);
+        middleLayer = LayerMask.NameToLayer(middleLayerName);
+        surfaceLayer = LayerMask.NameToLayer(surfaceLayerName);
+
         CreateCharacter();
         SetupOscillation();
         InitializeInertia();
         originalGravityScale = gravityMultiplier;
+        originalMoveSpeed = moveSpeed;
+        originalJumpSpeed = jumpInitialSpeed;
+
+        InitializeNodeHierarchy();
+        InitializeRotationSystem();
+        InitializeTeleportSystem();
     }
 
     void CreateCharacter()
     {
         CreateCenterBody();
         CreateNodeLayers();
-        ConnectNodeLayers();
+        ConnectNodeLayers(); // УПРОЩЕННАЯ СИСТЕМА СОЕДИНЕНИЙ
         CalculateRestPositions();
         InitializeStuckTracking();
     }
@@ -114,7 +216,7 @@ public class SlimeCharacterController : MonoBehaviour
             centerBody = gameObject.AddComponent<Rigidbody2D>();
 
         centerBody.gravityScale = 0;
-        centerBody.linearDamping = 1.5f;
+        centerBody.linearDamping = 2f;
         centerBody.angularDamping = 2f;
         centerBody.mass = 2f * currentMass;
         centerBody.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
@@ -127,15 +229,12 @@ public class SlimeCharacterController : MonoBehaviour
 
     void CreateNodeLayers()
     {
-        // Core layer - solid and round
-        CreateNodeLayer(0, "Core", coreNodes, coreNodesCount, coreDrag, 0.05f, 0.3f);
-        // Middle layer - transitional
-        CreateNodeLayer(1, "Middle", middleNodes, middleNodesCount, 1.2f, 0.07f, 0.6f);
-        // Surface layer - liquid and wobbly
-        CreateNodeLayer(2, "Surface", surfaceNodes, surfaceNodesCount, surfaceDrag, 0.09f, 1f);
+        CreateNodeLayer(0, "Core", coreNodes, coreNodesCount, coreDrag, 0.05f, 0.3f, coreLayer);
+        CreateNodeLayer(1, "Middle", middleNodes, middleNodesCount, 1.5f, 0.07f, 0.6f, middleLayer);
+        CreateNodeLayer(2, "Surface", surfaceNodes, surfaceNodesCount, surfaceDrag * 1.5f, 0.09f, 1f, surfaceLayer);
     }
 
-    void CreateNodeLayer(int layerIndex, string prefix, List<Rigidbody2D> nodes, int count, float drag, float colliderSize, float gravityEffect)
+    void CreateNodeLayer(int layerIndex, string prefix, List<Rigidbody2D> nodes, int count, float drag, float colliderSize, float gravityEffect, int unityLayer)
     {
         float radius = layerDistances[layerIndex];
         for (int i = 0; i < count; i++)
@@ -143,7 +242,6 @@ public class SlimeCharacterController : MonoBehaviour
             float angle = i * (360f / count);
             Vector2 direction = Quaternion.Euler(0, 0, angle) * Vector2.up;
 
-            // Используем локальную позицию относительно центра
             Vector2 localPosition = direction * radius;
             Vector2 position = (Vector2)transform.position + localPosition;
 
@@ -151,11 +249,12 @@ public class SlimeCharacterController : MonoBehaviour
             node.transform.position = position;
             node.transform.SetParent(transform);
             node.tag = "SlimeNode";
+            node.layer = unityLayer;
 
             Rigidbody2D rb = node.AddComponent<Rigidbody2D>();
             rb.gravityScale = gravityMultiplier * gravityEffect;
             rb.linearDamping = drag;
-            rb.angularDamping = drag * 1.8f;
+            rb.angularDamping = drag * 0.8f;
             rb.mass = (0.3f + layerIndex * 0.15f) * currentMass;
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
             rb.freezeRotation = true;
@@ -168,6 +267,146 @@ public class SlimeCharacterController : MonoBehaviour
 
             nodes.Add(rb);
         }
+    }
+
+    private void InitializeNodeHierarchy()
+    {
+        nodeHierarchy.Clear();
+
+        foreach (var node in coreNodes)
+        {
+            if (node != null)
+            {
+                nodeHierarchy.Add(new SlimeNodeInfo
+                {
+                    node = node,
+                    layerIndex = 0,
+                    influencedNodes = new List<Rigidbody2D>(),
+                    masterNode = null,
+                    restPosition = GetRestPositionForNode(node, 0),
+                    currentRotation = 0f,
+                    connectionPoint = node.position
+                });
+            }
+        }
+
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+            {
+                Rigidbody2D closestCore = FindClosestNodeInLayer(node.position, coreNodes);
+
+                nodeHierarchy.Add(new SlimeNodeInfo
+                {
+                    node = node,
+                    layerIndex = 1,
+                    influencedNodes = new List<Rigidbody2D>(),
+                    masterNode = closestCore,
+                    restPosition = GetRestPositionForNode(node, 1),
+                    currentRotation = Random.Range(0f, 360f),
+                    connectionPoint = CalculateConnectionPoint(closestCore.position, node.position, 1)
+                });
+
+                var coreInfo = nodeHierarchy.Find(n => n.node == closestCore);
+                if (coreInfo != null)
+                {
+                    coreInfo.influencedNodes.Add(node);
+                }
+            }
+        }
+
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+            {
+                Rigidbody2D closestMiddle = FindClosestNodeInLayer(node.position, middleNodes);
+
+                nodeHierarchy.Add(new SlimeNodeInfo
+                {
+                    node = node,
+                    layerIndex = 2,
+                    influencedNodes = new List<Rigidbody2D>(),
+                    masterNode = closestMiddle,
+                    restPosition = GetRestPositionForNode(node, 2),
+                    currentRotation = 0f,
+                    connectionPoint = CalculateConnectionPoint(closestMiddle.position, node.position, 2)
+                });
+
+                var middleInfo = nodeHierarchy.Find(n => n.node == closestMiddle);
+                if (middleInfo != null)
+                {
+                    middleInfo.influencedNodes.Add(node);
+                }
+            }
+        }
+    }
+
+    private Vector2 CalculateConnectionPoint(Vector2 masterPos, Vector2 nodePos, int layerIndex)
+    {
+        float connectionDistance = layerDistances[layerIndex] * 0.7f;
+        Vector2 direction = (nodePos - masterPos).normalized;
+        return masterPos + direction * connectionDistance;
+    }
+
+    private Vector2 GetRestPositionForNode(Rigidbody2D node, int layerIndex)
+    {
+        Vector2 toNode = node.position - (Vector2)transform.position;
+        float distance = toNode.magnitude;
+        float targetDistance = layerDistances[layerIndex];
+
+        if (distance > 0.1f)
+        {
+            return toNode.normalized * targetDistance;
+        }
+        else
+        {
+            return Random.insideUnitCircle.normalized * targetDistance;
+        }
+    }
+
+    private void InitializeRotationSystem()
+    {
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+            {
+                currentRotationAngles[node] = Random.Range(0f, 360f);
+                targetRotationAngles[node] = currentRotationAngles[node];
+                rotationUpdateTimes[node] = Time.time;
+            }
+        }
+    }
+
+    private void InitializeTeleportSystem()
+    {
+        foreach (var node in allNodes)
+        {
+            if (node != null)
+            {
+                lastTeleportTime[node] = 0f;
+                nodeTeleportStatus[node] = false;
+            }
+        }
+    }
+
+    private Rigidbody2D FindClosestNodeInLayer(Vector2 position, List<Rigidbody2D> layerNodes)
+    {
+        Rigidbody2D closest = null;
+        float closestDistance = Mathf.Infinity;
+
+        foreach (var node in layerNodes)
+        {
+            if (node == null) continue;
+
+            float distance = Vector2.Distance(position, node.position);
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closest = node;
+            }
+        }
+
+        return closest;
     }
 
     void InitializeStuckTracking()
@@ -231,22 +470,23 @@ public class SlimeCharacterController : MonoBehaviour
         }
     }
 
+    // УПРОЩЕННАЯ СИСТЕМА СОЕДИНЕНИЙ - УБРАЛ СВЯЗИ МЕЖДУ CORE И MIDDLE
     void ConnectNodeLayers()
     {
-        // Connect to center
+        // Каждый слой соединяется только с центром
         ConnectLayerToCenter(coreNodes, 0, coreStiffness);
         ConnectLayerToCenter(middleNodes, 1, middleStiffness);
         ConnectLayerToCenter(surfaceNodes, 2, surfaceStiffness);
 
-        // Connect within layers - core is tightly connected
+        // Соединения внутри слоев остаются
         ConnectNodesInLayer(coreNodes, coreStiffness * 2f, 0.9f);
-        ConnectNodesInLayer(middleNodes, middleStiffness * 1.2f, 0.7f);
-        // Surface layer has looser connections for fluidity
-        ConnectNodesInLayer(surfaceNodes, surfaceStiffness * 0.8f, 0.4f);
+        ConnectNodesInLayer(middleNodes, middleStiffness * 1.5f, 0.8f);
+        ConnectNodesInLayer(surfaceNodes, surfaceStiffness * 1.2f, 0.7f);
 
-        // Connect between layers
-        ConnectAdjacentLayers(coreNodes, middleNodes, 0.8f, coreStiffness);
-        ConnectAdjacentLayers(middleNodes, surfaceNodes, 0.6f, middleStiffness);
+        // УБРАЛ: ConnectAdjacentLayers(coreNodes, middleNodes, 0.8f, middleStiffness * 1.5f);
+
+        // Оставляем только связь между middle и surface
+        ConnectAdjacentLayers(middleNodes, surfaceNodes, 0.7f, middleStiffness * 1.2f);
     }
 
     void ConnectLayerToCenter(List<Rigidbody2D> nodes, int layerIndex, float stiffness)
@@ -257,8 +497,8 @@ public class SlimeCharacterController : MonoBehaviour
             SpringJoint2D joint = node.gameObject.AddComponent<SpringJoint2D>();
             joint.connectedBody = centerBody;
             joint.distance = distance;
-            joint.dampingRatio = 0.85f;
-            joint.frequency = stiffness / 150f;
+            joint.dampingRatio = 0.9f;
+            joint.frequency = stiffness / 120f;
             joint.autoConfigureDistance = false;
             joint.breakForce = Mathf.Infinity;
         }
@@ -279,7 +519,7 @@ public class SlimeCharacterController : MonoBehaviour
 
             joint.distance = segmentLength;
             joint.dampingRatio = damping;
-            joint.frequency = stiffness / 150f;
+            joint.frequency = stiffness / 120f;
             joint.autoConfigureDistance = false;
             joint.breakForce = Mathf.Infinity;
         }
@@ -295,8 +535,8 @@ public class SlimeCharacterController : MonoBehaviour
             SpringJoint2D joint = outerNodes[i].gameObject.AddComponent<SpringJoint2D>();
             joint.connectedBody = innerNodes[innerIndex];
             joint.distance = distance;
-            joint.dampingRatio = 0.8f;
-            joint.frequency = stiffness / 180f;
+            joint.dampingRatio = 0.7f;
+            joint.frequency = stiffness / 150f;
             joint.autoConfigureDistance = false;
             joint.breakForce = Mathf.Infinity;
         }
@@ -315,35 +555,23 @@ public class SlimeCharacterController : MonoBehaviour
         GetPlayerInput();
         oscillationTimer += Time.deltaTime;
 
-        // Handle jump input in Update for better responsiveness
         if (Input.GetKeyDown(KeyCode.Space) && CanJump())
         {
             StartJump();
         }
 
-        // Handle W key for lifting - новая логика
-        if (Input.GetKey(KeyCode.W) && IsOnGround() && !isJumping)
+        if (Input.GetKey(KeyCode.W))
         {
             isHoldingW = true;
-            if (!isLifted)
-            {
-                StartLift();
-            }
         }
         else
         {
             isHoldingW = false;
-            if (isLifted)
-            {
-                StopLift();
-            }
         }
 
-        // Handle S key for enhanced jump and fast fall
         if (Input.GetKey(KeyCode.S))
         {
             isHoldingS = true;
-            // Fast fall when not jumping and in air
             if (!isJumping && !IsOnGround())
             {
                 ApplyFastFall();
@@ -353,15 +581,18 @@ public class SlimeCharacterController : MonoBehaviour
         {
             isHoldingS = false;
         }
+
+        CheckPositionLock();
     }
 
     void FixedUpdate()
     {
         ApplyMovement();
         HandleJump();
-        ApplyLift();
+        HandleStretching();
         ApplyLiquidBehavior();
         StabilizeCoreLayer();
+        StabilizeMiddleLayer();
         HandleObstacleClimbing();
         PreventNodeSticking();
         HandleStuckNodes();
@@ -369,13 +600,22 @@ public class SlimeCharacterController : MonoBehaviour
         ApplyGroundFriction();
         ApplyLayerInertia();
         LimitNodeVelocities();
+
+        ApplySurfaceSliding();
+        ApplyAutoClimbing();
+        ApplyHierarchicalForces(); // УСИЛЕННАЯ СИСТЕМА ДЛЯ КОМПЕНСАЦИИ
+        ApplyFreeRotation();
+        HandleTeleportThroughObstacles();
+
+        ApplyStabilizationForces();
+        HandleSlopeSliding();
+        ApplyPositionLock();
     }
 
     void GetPlayerInput()
     {
         moveInput = Vector2.zero;
 
-        // During jump, W and S don't work for movement
         if (!isJumping)
         {
             if (Input.GetKey(KeyCode.W)) moveInput.y += 1f;
@@ -389,29 +629,25 @@ public class SlimeCharacterController : MonoBehaviour
 
     void ApplyMovement()
     {
-        if (moveInput.magnitude > 0.1f)
+        if (moveInput.magnitude > 0.1f && !isPositionLocked)
         {
-            Vector2 targetVelocity = moveInput * moveSpeed;
+            float currentMoveSpeed = isStretching ? originalMoveSpeed * stretchMoveSpeedMultiplier : originalMoveSpeed;
+            Vector2 targetVelocity = moveInput * currentMoveSpeed;
             Vector2 velocityChange = targetVelocity - centerBody.linearVelocity;
-
-            // Apply stronger force for more responsive movement
             centerBody.AddForce(velocityChange * 20f);
         }
     }
 
     void ApplyGroundFriction()
     {
-        // Apply friction when on ground and not moving
         if (IsOnGround() && moveInput.magnitude < 0.1f && centerBody.linearVelocity.magnitude < 0.5f)
         {
-            // Stop completely when velocity is low and no input
-            centerBody.linearVelocity = new Vector2(0f, centerBody.linearVelocity.y);
+            centerBody.linearVelocity = Vector2.Lerp(centerBody.linearVelocity, Vector2.zero, groundFriction * Time.fixedDeltaTime);
         }
     }
 
     void ApplyLayerInertia()
     {
-        // Update middle layer with delay
         middleLayerTimer += Time.fixedDeltaTime;
         if (middleLayerTimer >= middleLayerDelay)
         {
@@ -425,7 +661,6 @@ public class SlimeCharacterController : MonoBehaviour
             middleLayerTimer = 0f;
         }
 
-        // Update surface layer with delay
         surfaceLayerTimer += Time.fixedDeltaTime;
         if (surfaceLayerTimer >= surfaceLayerDelay)
         {
@@ -439,7 +674,6 @@ public class SlimeCharacterController : MonoBehaviour
             surfaceLayerTimer = 0f;
         }
 
-        // Apply smooth movement to middle layer
         for (int i = 0; i < middleNodes.Count; i++)
         {
             if (middleNodes[i] != null)
@@ -456,7 +690,6 @@ public class SlimeCharacterController : MonoBehaviour
             }
         }
 
-        // Apply smooth movement to surface layer
         for (int i = 0; i < surfaceNodes.Count; i++)
         {
             if (surfaceNodes[i] != null)
@@ -474,61 +707,358 @@ public class SlimeCharacterController : MonoBehaviour
         }
     }
 
-    void StartLift()
+    private void CheckPositionLock()
     {
-        isLifted = true;
-        // Новая логика: просто устанавливаем флаг, сила применяется в ApplyLift
-    }
+        bool shouldLock = IsOnGround() &&
+                         moveInput.magnitude < 0.05f &&
+                         centerBody.linearVelocity.magnitude < positionLockThreshold &&
+                         !isJumping && !isStretching;
 
-    void StopLift()
-    {
-        isLifted = false;
-    }
-
-    void ApplyLift()
-    {
-        if (isLifted && isHoldingW && IsOnGround())
+        if (shouldLock && !isPositionLocked)
         {
-            // Определяем целевую высоту поднятия
-            float targetHeight = GetGroundHeight() + maxLiftHeight * liftHeightPercent;
+            isPositionLocked = true;
+            lockedPosition = centerBody.position;
+        }
+        else if (!shouldLock && isPositionLocked)
+        {
+            isPositionLocked = false;
+        }
+    }
 
-            // Если текущая высота меньше целевой, применяем силу
-            if (transform.position.y < targetHeight)
+    private void ApplyPositionLock()
+    {
+        if (isPositionLocked)
+        {
+            Vector2 positionError = lockedPosition - centerBody.position;
+            if (positionError.magnitude > 0.05f)
             {
-                // Применяем силу поднятия ко всем узлам
-                foreach (Rigidbody2D node in coreNodes)
-                {
-                    if (node != null) node.AddForce(Vector2.up * liftForce * 0.8f);
-                }
-                foreach (Rigidbody2D node in middleNodes)
-                {
-                    if (node != null) node.AddForce(Vector2.up * liftForce * 0.6f);
-                }
-                foreach (Rigidbody2D node in surfaceNodes)
-                {
-                    if (node != null) node.AddForce(Vector2.up * liftForce * 0.4f);
-                }
+                centerBody.AddForce(positionError * positionLockForce);
+            }
 
-                // Также поднимаем центр
-                centerBody.AddForce(Vector2.up * liftForce * 0.5f);
+            foreach (var node in allNodes)
+            {
+                if (node != null)
+                {
+                    Vector2 toCenter = (Vector2)transform.position - node.position;
+                    float distance = toCenter.magnitude;
+                    float targetDistance = GetTargetDistanceForNode(node);
+
+                    if (Mathf.Abs(distance - targetDistance) > 0.1f)
+                    {
+                        Vector2 targetPos = (Vector2)transform.position + toCenter.normalized * targetDistance;
+                        Vector2 correction = (targetPos - node.position) * positionLockForce * 0.3f;
+                        node.AddForce(correction);
+                    }
+                }
             }
         }
     }
 
-    float GetGroundHeight()
+    private float GetTargetDistanceForNode(Rigidbody2D node)
     {
-        // Находим высоту земли под слизью
-        RaycastHit2D hit = Physics2D.Raycast(transform.position, Vector2.down, 10f, obstacleLayers);
+        if (coreNodes.Contains(node)) return layerDistances[0];
+        if (middleNodes.Contains(node)) return layerDistances[1];
+        if (surfaceNodes.Contains(node)) return layerDistances[2];
+        return 1f;
+    }
+
+    private void HandleStretching()
+    {
+        bool wantsToStretch = Input.GetKey(KeyCode.W);
+        bool canStretch = IsOnGround() && GetGroundContactPercentage() >= minGroundContactPercent;
+
+        if (wantsToStretch && canStretch && !isJumping)
+        {
+            if (!isStretching)
+            {
+                isStretching = true;
+                currentStretchProgress = 0f;
+                moveSpeed = originalMoveSpeed * stretchMoveSpeedMultiplier;
+                jumpInitialSpeed = originalJumpSpeed * stretchJumpMultiplier;
+            }
+
+            currentStretchProgress = Mathf.MoveTowards(currentStretchProgress, 1f, stretchReturnSpeed * Time.fixedDeltaTime);
+            ApplyStretchForces();
+        }
+        else
+        {
+            if (isStretching)
+            {
+                currentStretchProgress = Mathf.MoveTowards(currentStretchProgress, 0f, stretchReturnSpeed * Time.fixedDeltaTime);
+
+                if (currentStretchProgress <= 0.01f)
+                {
+                    isStretching = false;
+                    moveSpeed = originalMoveSpeed;
+                    jumpInitialSpeed = originalJumpSpeed;
+                }
+                else
+                {
+                    ApplyStretchForces();
+                }
+            }
+        }
+    }
+
+    private void ApplyStretchForces()
+    {
+        if (!isStretching && currentStretchProgress <= 0.01f) return;
+
+        var upperNodes = surfaceNodes.Where(node =>
+            node != null && node.position.y > centerBody.position.y).ToList();
+
+        float upwardForce = stretchUpwardForce * currentStretchProgress;
+        float horizontalForce = stretchHorizontalForce * currentStretchProgress;
+
+        foreach (var node in upperNodes)
+        {
+            Vector2 stretchDirection = (Vector2.up + Random.insideUnitCircle * 0.2f).normalized;
+            node.AddForce(stretchDirection * upwardForce);
+
+            if (Mathf.Abs(node.position.x - centerBody.position.x) > layerDistances[2] * 0.5f)
+            {
+                Vector2 toCenterX = new Vector2(centerBody.position.x - node.position.x, 0).normalized;
+                node.AddForce(toCenterX * horizontalForce * 0.3f);
+            }
+        }
+
+        foreach (var node in middleNodes)
+        {
+            if (node != null && node.position.y > centerBody.position.y)
+            {
+                Vector2 stretchDirection = (Vector2.up + Random.insideUnitCircle * 0.1f).normalized;
+                node.AddForce(stretchDirection * upwardForce * 0.6f);
+            }
+        }
+    }
+
+    private void ApplyStabilizationForces()
+    {
+        if (IsOnGround() && moveInput.magnitude < 0.1f && centerBody.linearVelocity.magnitude < velocityStoppingThreshold)
+        {
+            Vector2 frictionForce = -centerBody.linearVelocity.normalized * staticFrictionForce;
+            centerBody.AddForce(frictionForce);
+
+            StabilizeGroundNodes();
+
+            if (centerBody.linearVelocity.magnitude < 0.1f)
+            {
+                centerBody.linearVelocity = Vector2.zero;
+            }
+        }
+    }
+
+    private void StabilizeGroundNodes()
+    {
+        foreach (var surfaceNode in surfaceNodes)
+        {
+            if (surfaceNode == null) continue;
+
+            RaycastHit2D hit = Physics2D.Raycast(surfaceNode.position, Vector2.down, 0.3f, obstacleLayers);
+            if (hit.collider != null && hit.collider.CompareTag("Ground"))
+            {
+                surfaceNode.AddForce(Vector2.down * groundStabilizationForce * 0.5f);
+            }
+        }
+    }
+
+    private void HandleSlopeSliding()
+    {
+        if (!IsOnGround()) return;
+
+        CalculateCurrentSlopeAngle();
+
+        if (currentSlopeAngle > maxStableSlopeAngle && moveInput.magnitude < slopeStabilizationThreshold)
+        {
+            Vector2 slideDirection = GetSlopeDirection();
+            foreach (var node in surfaceNodes)
+            {
+                if (node != null)
+                {
+                    node.AddForce(slideDirection * slideDownForce * (currentSlopeAngle / 90f));
+                }
+            }
+            centerBody.AddForce(slideDirection * slideDownForce * 0.5f * (currentSlopeAngle / 90f));
+        }
+    }
+
+    private void CalculateCurrentSlopeAngle()
+    {
+        RaycastHit2D[] hits = new RaycastHit2D[5];
+        int hitCount = centerBody.Cast(Vector2.down, hits, 1f);
+
+        float maxAngle = 0f;
+        for (int i = 0; i < hitCount; i++)
+        {
+            if (hits[i].collider.CompareTag("Ground"))
+            {
+                float angle = Vector2.Angle(hits[i].normal, Vector2.up);
+                if (angle > maxAngle) maxAngle = angle;
+            }
+        }
+
+        currentSlopeAngle = maxAngle;
+    }
+
+    private Vector2 GetSlopeDirection()
+    {
+        RaycastHit2D hit = Physics2D.Raycast(centerBody.position, Vector2.down, 1f, obstacleLayers);
         if (hit.collider != null && hit.collider.CompareTag("Ground"))
         {
-            return hit.point.y;
+            return new Vector2(-hit.normal.y, hit.normal.x).normalized;
         }
-        return transform.position.y;
+        return Vector2.right;
     }
+
+    private void ApplyFreeRotation()
+    {
+        if (!enableFreeRotation) return;
+
+        foreach (var middleNode in middleNodes)
+        {
+            if (middleNode == null) continue;
+
+            var nodeInfo = nodeHierarchy.Find(n => n.node == middleNode);
+            if (nodeInfo == null || nodeInfo.masterNode == null) continue;
+
+            if (Time.time - rotationUpdateTimes[middleNode] > 0.2f)
+            {
+                UpdateTargetRotation(nodeInfo);
+                rotationUpdateTimes[middleNode] = Time.time;
+            }
+
+            currentRotationAngles[middleNode] = Mathf.LerpAngle(
+                currentRotationAngles[middleNode],
+                targetRotationAngles[middleNode],
+                rotationReturnForce * Time.fixedDeltaTime
+            );
+
+            ApplyRotationThroughConnection(nodeInfo);
+        }
+    }
+
+    private void UpdateTargetRotation(SlimeNodeInfo nodeInfo)
+    {
+        Vector2 movement = GetMovementDirection();
+        float movementInfluence = Vector2.Dot(movement, (nodeInfo.node.position - nodeInfo.masterNode.position).normalized);
+
+        targetRotationAngles[nodeInfo.node] = currentRotationAngles[nodeInfo.node] +
+            Random.Range(-rotationFreedom, rotationFreedom) * 0.1f +
+            movementInfluence * rotationFreedom * 0.3f;
+    }
+
+    private void ApplyRotationThroughConnection(SlimeNodeInfo nodeInfo)
+    {
+        float currentAngle = currentRotationAngles[nodeInfo.node] * Mathf.Deg2Rad;
+        Vector2 offset = new Vector2(Mathf.Cos(currentAngle), Mathf.Sin(currentAngle)) * layerDistances[1] * 0.7f;
+
+        Vector2 targetConnectionPoint = nodeInfo.masterNode.position + offset;
+        nodeInfo.connectionPoint = targetConnectionPoint;
+
+        Vector2 toConnection = targetConnectionPoint - nodeInfo.node.position;
+        float distance = toConnection.magnitude;
+
+        if (distance > 0.1f)
+        {
+            nodeInfo.node.AddForce(toConnection.normalized * distance * coreToMiddleForce);
+        }
+
+        Debug.DrawLine(nodeInfo.masterNode.position, targetConnectionPoint, Color.cyan);
+        Debug.DrawLine(targetConnectionPoint, nodeInfo.node.position, Color.yellow);
+    }
+
+    // ИСПРАВЛЕННЫЕ МЕТОДЫ
+
+    private bool IsPathToCenterBlocked(Vector2 nodePosition)
+    {
+        Vector2 toCenter = (Vector2)transform.position - nodePosition;
+        float distance = toCenter.magnitude;
+
+        RaycastHit2D hit = Physics2D.Raycast(nodePosition, toCenter.normalized, distance, obstacleLayers);
+        return hit.collider != null && hit.collider.CompareTag("Ground");
+    }
+
+    private Vector2 GetTangentialDirection(Vector2 nodePos, Vector2 centerPos)
+    {
+        Vector2 toCenter = centerPos - nodePos;
+        if (toCenter.magnitude < 0.01f)
+            return Vector2.right;
+
+        return new Vector2(-toCenter.y, toCenter.x).normalized;
+    }
+
+    private Vector2 FindClearPathPosition(Vector2 from, Vector2 to)
+    {
+        Vector2 direction = (to - from).normalized;
+        float maxDistance = Vector2.Distance(from, to);
+
+        for (float dist = maxDistance * 0.3f; dist < maxDistance; dist += 0.2f)
+        {
+            Vector2 testPoint = from + direction * dist;
+            if (!Physics2D.OverlapCircle(testPoint, 0.3f, obstacleLayers))
+            {
+                return testPoint;
+            }
+        }
+
+        return from + direction * Mathf.Max(maxDistance * 0.7f, minTeleportDistance);
+    }
+
+    private SlidingSolution CheckSurfaceSliding(Rigidbody2D node)
+    {
+        if (node == null) return SlidingSolution.None;
+
+        Vector2 nodePos = node.position;
+
+        RaycastHit2D hitDown = Physics2D.Raycast(nodePos, Vector2.down, slideDetectionRange, obstacleLayers);
+        RaycastHit2D hitForward = Physics2D.Raycast(nodePos, GetMovementDirection(), slideDetectionRange, obstacleLayers);
+        RaycastHit2D hitUp = Physics2D.Raycast(nodePos + Vector2.up * 0.2f, GetMovementDirection(), slideDetectionRange * 0.8f, obstacleLayers);
+
+        if (hitDown.collider != null && hitDown.collider.CompareTag("Ground"))
+        {
+            float surfaceAngle = Vector2.Angle(hitDown.normal, Vector2.up);
+
+            if (surfaceAngle < 30f)
+                return SlidingSolution.HorizontalSlide;
+            else if (surfaceAngle < maxSlideAngle)
+                return SlidingSolution.CornerSlide;
+        }
+
+        if (hitForward.collider != null && hitUp.collider == null)
+            return SlidingSolution.VerticalClimb;
+
+        return SlidingSolution.None;
+    }
+
+    private bool CanAutoClimb(Rigidbody2D node)
+    {
+        if (node == null) return false;
+
+        Vector2 nodePos = node.position;
+        Vector2 movementDir = GetMovementDirection();
+
+        RaycastHit2D hitForward = Physics2D.Raycast(nodePos, movementDir, climbDetectionRange, obstacleLayers);
+        if (hitForward.collider == null || !hitForward.collider.CompareTag("Ground"))
+            return false;
+
+        Vector2 climbStart = nodePos + movementDir * climbDetectionRange * 0.5f;
+        RaycastHit2D hitUp = Physics2D.Raycast(climbStart, Vector2.up, maxAutoClimbHeight, obstacleLayers);
+
+        return hitUp.collider == null;
+    }
+
+    private float GetMaxDistanceForLayer(List<Rigidbody2D> nodes)
+    {
+        if (nodes == coreNodes) return layerDistances[0];
+        if (nodes == middleNodes) return layerDistances[1];
+        if (nodes == surfaceNodes) return layerDistances[2];
+        return 1f;
+    }
+
+    // Остальные методы остаются без изменений...
 
     void ApplyFastFall()
     {
-        // Увеличиваем гравитацию для быстрого падения
         foreach (Rigidbody2D node in coreNodes)
             if (node != null) node.gravityScale = gravityMultiplier * fastFallMultiplier * 0.3f;
         foreach (Rigidbody2D node in middleNodes)
@@ -545,16 +1075,13 @@ public class SlimeCharacterController : MonoBehaviour
             jumpRequested = false;
             jumpTimer = 0f;
 
-            // Начальная скорость зависит от массы (чем больше масса, тем меньше скорость)
             currentJumpSpeed = jumpInitialSpeed / Mathf.Max(0.5f, currentMass);
 
-            // Усиливаем прыжок при зажатии S
             if (isHoldingS)
             {
                 currentJumpSpeed *= 1.5f;
             }
 
-            // Восстанавливаем нормальную гравитацию перед прыжком
             gravityMultiplier = originalGravityScale;
             UpdateNodesGravity();
         }
@@ -568,10 +1095,8 @@ public class SlimeCharacterController : MonoBehaviour
 
             if (jumpTimer < maxJumpTime)
             {
-                // Экспоненциальное уменьшение скорости прыжка
                 float jumpForce = currentJumpSpeed * Mathf.Pow(jumpDecayRate, jumpTimer * 10f);
 
-                // Применяем силу прыжка к центру и всем узлам
                 centerBody.AddForce(Vector2.up * jumpForce);
 
                 foreach (Rigidbody2D node in coreNodes)
@@ -589,7 +1114,6 @@ public class SlimeCharacterController : MonoBehaviour
             }
             else
             {
-                // Завершаем прыжок
                 EndJump();
             }
         }
@@ -602,7 +1126,6 @@ public class SlimeCharacterController : MonoBehaviour
 
     void UpdateNodesGravity()
     {
-        // Обновляем гравитацию для всех узлов
         foreach (Rigidbody2D node in coreNodes)
             if (node != null) node.gravityScale = gravityMultiplier * 0.3f;
         foreach (Rigidbody2D node in middleNodes)
@@ -613,7 +1136,6 @@ public class SlimeCharacterController : MonoBehaviour
 
     void LimitNodeVelocities()
     {
-        // Ограничиваем максимальную скорость всех узлов
         foreach (Rigidbody2D node in coreNodes)
         {
             if (node != null && node.linearVelocity.magnitude > maxNodeVelocity)
@@ -639,12 +1161,10 @@ public class SlimeCharacterController : MonoBehaviour
 
     void ApplyCorePriority()
     {
-        // Apply force to help nodes follow the core when moving through obstacles
         if (moveInput.magnitude > 0.1f)
         {
             Vector2 moveDirection = moveInput.normalized;
 
-            // Help core nodes follow first
             foreach (Rigidbody2D node in coreNodes)
             {
                 if (node == null) continue;
@@ -652,13 +1172,12 @@ public class SlimeCharacterController : MonoBehaviour
                 Vector2 toCenter = (centerBody.position - node.position);
                 float alignment = Vector2.Dot(toCenter.normalized, moveDirection);
 
-                if (alignment < 0.5f) // If node is not aligned with movement
+                if (alignment < 0.5f)
                 {
                     node.AddForce(moveDirection * corePriorityForce * 0.8f);
                 }
             }
 
-            // Help other nodes follow
             foreach (Rigidbody2D node in middleNodes)
             {
                 if (node == null) continue;
@@ -689,7 +1208,6 @@ public class SlimeCharacterController : MonoBehaviour
 
     void ApplyLiquidBehavior()
     {
-        // Apply oscillation to surface nodes for liquid effect
         for (int i = 0; i < surfaceNodes.Count; i++)
         {
             if (surfaceNodes[i] == null) continue;
@@ -701,15 +1219,8 @@ public class SlimeCharacterController : MonoBehaviour
         }
     }
 
-    Vector2 GetTangentialDirection(Vector2 nodePos, Vector2 centerPos)
-    {
-        Vector2 toCenter = centerPos - nodePos;
-        return new Vector2(-toCenter.y, toCenter.x).normalized;
-    }
-
     void StabilizeCoreLayer()
     {
-        // Keep core layer tightly formed and round
         for (int i = 0; i < coreNodes.Count; i++)
         {
             if (coreNodes[i] == null) continue;
@@ -718,16 +1229,33 @@ public class SlimeCharacterController : MonoBehaviour
             Vector2 toTarget = targetPos - (Vector2)coreNodes[i].position;
             float distance = toTarget.magnitude;
 
-            if (distance > 0.2f)
+            if (distance > 0.05f)
             {
-                coreNodes[i].AddForce(toTarget.normalized * distance * 80f);
+                float forceMultiplier = distance * 120f;
+                coreNodes[i].AddForce(toTarget.normalized * forceMultiplier);
+            }
+        }
+    }
+
+    void StabilizeMiddleLayer()
+    {
+        for (int i = 0; i < middleNodes.Count; i++)
+        {
+            if (middleNodes[i] == null) continue;
+
+            Vector2 targetPos = (Vector2)transform.position + nodeRestPositions[coreNodesCount + i];
+            Vector2 toTarget = targetPos - (Vector2)middleNodes[i].position;
+            float distance = toTarget.magnitude;
+
+            if (distance > 0.1f)
+            {
+                middleNodes[i].AddForce(toTarget.normalized * distance * 60f);
             }
         }
     }
 
     void HandleObstacleClimbing()
     {
-        // Check for obstacles in movement direction
         if (moveInput.magnitude > 0.1f)
         {
             Vector2 checkDir = moveInput.normalized;
@@ -735,17 +1263,14 @@ public class SlimeCharacterController : MonoBehaviour
 
             if (hit.collider != null && hit.collider.CompareTag("Ground"))
             {
-                // Check if obstacle is low enough to climb
                 RaycastHit2D topHit = Physics2D.Raycast(
                     (Vector2)transform.position + checkDir * obstacleDetectionRange,
                     Vector2.up, 0.5f, obstacleLayers);
 
                 if (topHit.collider == null)
                 {
-                    // Apply stronger climb force to help overcome obstacles
                     centerBody.AddForce((Vector2.up * 0.7f + checkDir * 0.3f) * climbAssistForce);
 
-                    // Help nodes climb over - but with less force than the core
                     foreach (Rigidbody2D node in surfaceNodes)
                     {
                         if (node == null) continue;
@@ -754,13 +1279,11 @@ public class SlimeCharacterController : MonoBehaviour
                 }
                 else
                 {
-                    // If obstacle is too high, help nodes flow around it
-                    Vector2 flowDirection = new Vector2(-checkDir.y, checkDir.x); // Perpendicular direction
+                    Vector2 flowDirection = new Vector2(-checkDir.y, checkDir.x);
                     foreach (Rigidbody2D node in surfaceNodes)
                     {
                         if (node == null) continue;
 
-                        // Check if this node is likely stuck behind the obstacle
                         float nodeDistance = Vector2.Distance(node.position, hit.point);
                         if (nodeDistance < 0.5f)
                         {
@@ -774,18 +1297,15 @@ public class SlimeCharacterController : MonoBehaviour
 
     void PreventNodeSticking()
     {
-        // Apply repulsive force to nodes that are too close to obstacles
         foreach (Rigidbody2D node in surfaceNodes)
         {
             if (node == null) continue;
 
-            // Check for nearby obstacles
             Collider2D[] nearbyObstacles = Physics2D.OverlapCircleAll(node.position, 0.2f, obstacleLayers);
             foreach (Collider2D obstacle in nearbyObstacles)
             {
                 if (obstacle.CompareTag("Ground"))
                 {
-                    // Calculate repulsion direction
                     Vector2 repelDir = (node.position - (Vector2)obstacle.transform.position).normalized;
                     if (repelDir.magnitude < 0.1f) repelDir = Random.insideUnitCircle.normalized;
 
@@ -797,11 +1317,9 @@ public class SlimeCharacterController : MonoBehaviour
 
     void HandleStuckNodes()
     {
-        // Check for stuck nodes periodically
         if (Time.time - lastUnstuckCheck < 0.5f) return;
         lastUnstuckCheck = Time.time;
 
-        // Check all nodes for being stuck
         CheckNodeGroupStuck(coreNodes, 0);
         CheckNodeGroupStuck(middleNodes, coreNodesCount);
         CheckNodeGroupStuck(surfaceNodes, coreNodesCount + middleNodesCount);
@@ -817,49 +1335,247 @@ public class SlimeCharacterController : MonoBehaviour
             float distanceFromCenter = Vector2.Distance(centerBody.position, nodes[i].position);
             float maxAllowedDistance = GetMaxDistanceForLayer(nodes) * 1.5f;
 
-            // Node is stuck if it's too far from center and not moving much
             bool isStuck = distanceFromCenter > maxAllowedDistance &&
                           nodes[i].linearVelocity.magnitude < 0.1f;
 
             if (isStuck && !nodeStuckStatus[globalIndex])
             {
-                // Node just became stuck
                 nodeStuckStatus[globalIndex] = true;
                 UnstuckNode(nodes[i]);
             }
             else if (!isStuck && nodeStuckStatus[globalIndex])
             {
-                // Node is no longer stuck
                 nodeStuckStatus[globalIndex] = false;
             }
         }
     }
 
-    float GetMaxDistanceForLayer(List<Rigidbody2D> nodes)
-    {
-        if (nodes == coreNodes) return layerDistances[0];
-        if (nodes == middleNodes) return layerDistances[1];
-        if (nodes == surfaceNodes) return layerDistances[2];
-        return 1f;
-    }
-
     void UnstuckNode(Rigidbody2D node)
     {
-        // Calculate direction back to center
         Vector2 toCenter = (centerBody.position - node.position).normalized;
-
-        // Add some randomness to prevent nodes from getting stuck in the same place
         Vector2 randomOffset = Random.insideUnitCircle * 0.3f;
         Vector2 unstuckDirection = (toCenter + randomOffset).normalized;
 
-        // Apply unstuck force
         node.AddForce(unstuckDirection * unstuckForce, ForceMode2D.Impulse);
-
-        // Also move the node slightly towards center
         node.MovePosition(node.position + unstuckDirection * 0.2f);
     }
 
-    // Public method for surface nodes to report ground contact
+    private void HandleTeleportThroughObstacles()
+    {
+        if (!enableTeleportThroughObstacles) return;
+
+        foreach (var node in allNodes)
+        {
+            if (node == null) continue;
+
+            float distanceToCenter = Vector2.Distance(node.position, transform.position);
+
+            bool isTooFar = distanceToCenter > teleportThreshold;
+            bool isStuck = node.linearVelocity.magnitude < 0.5f;
+            bool canTeleport = Time.time - lastTeleportTime[node] > teleportCooldown;
+            bool isPathBlocked = IsPathToCenterBlocked(node.position);
+
+            if (isTooFar && isStuck && canTeleport && isPathBlocked && !nodeTeleportStatus[node])
+            {
+                SmoothTeleportNode(node);
+            }
+            else if (distanceToCenter < teleportThreshold * 0.7f)
+            {
+                nodeTeleportStatus[node] = false;
+            }
+        }
+    }
+
+    private void SmoothTeleportNode(Rigidbody2D node)
+    {
+        Vector2 toCenter = (Vector2)transform.position - node.position;
+        float distance = toCenter.magnitude;
+
+        if (distance < minTeleportDistance) return;
+
+        Vector2 teleportPosition = FindClearPathPosition(node.position, transform.position);
+
+        node.MovePosition(Vector2.Lerp(node.position, teleportPosition, 0.7f));
+        node.AddForce(toCenter.normalized * teleportForce * 0.5f, ForceMode2D.Impulse);
+
+        node.linearVelocity *= 0.3f;
+        node.angularVelocity = 0f;
+
+        lastTeleportTime[node] = Time.time;
+        nodeTeleportStatus[node] = true;
+
+        Debug.Log($"Smooth teleported node {node.name}");
+        Debug.DrawLine(node.position, teleportPosition, Color.red, 2f);
+    }
+
+    private void ApplySurfaceSliding()
+    {
+        if (!enableSurfaceSliding) return;
+
+        slideTimer += Time.fixedDeltaTime;
+        if (slideTimer < SLIDE_UPDATE_INTERVAL) return;
+        slideTimer = 0f;
+
+        foreach (var surfaceNode in surfaceNodes)
+        {
+            if (surfaceNode == null) continue;
+
+            SlidingSolution slideSolution = CheckSurfaceSliding(surfaceNode);
+
+            switch (slideSolution)
+            {
+                case SlidingSolution.HorizontalSlide:
+                    ApplyHorizontalSliding(surfaceNode);
+                    break;
+                case SlidingSolution.VerticalClimb:
+                    ApplyVerticalSliding(surfaceNode);
+                    break;
+                case SlidingSolution.CornerSlide:
+                    ApplyCornerSliding(surfaceNode);
+                    break;
+            }
+        }
+    }
+
+    private void ApplyHorizontalSliding(Rigidbody2D node)
+    {
+        Vector2 slideDirection = GetMovementDirection();
+        node.AddForce(slideDirection * surfaceSlideForce * slideAcceleration);
+        Debug.DrawRay(node.position, slideDirection * 0.5f, Color.blue);
+    }
+
+    private void ApplyVerticalSliding(Rigidbody2D node)
+    {
+        Vector2 climbDirection = (Vector2.up + GetMovementDirection() * 0.3f).normalized;
+        node.AddForce(climbDirection * surfaceSlideForce * climbAssistMultiplier);
+        Debug.DrawRay(node.position, climbDirection * 0.6f, Color.green);
+    }
+
+    private void ApplyCornerSliding(Rigidbody2D node)
+    {
+        RaycastHit2D hit = Physics2D.Raycast(node.position, Vector2.down, slideDetectionRange, obstacleLayers);
+        if (hit.collider != null)
+        {
+            Vector2 surfaceNormal = hit.normal;
+            Vector2 slideDirection = new Vector2(-surfaceNormal.y, surfaceNormal.x);
+
+            Vector2 movementDir = GetMovementDirection();
+            if (Vector2.Dot(slideDirection, movementDir) < 0)
+                slideDirection = -slideDirection;
+
+            node.AddForce(slideDirection * surfaceSlideForce);
+            Debug.DrawRay(node.position, slideDirection * 0.5f, Color.yellow);
+        }
+    }
+
+    private void ApplyAutoClimbing()
+    {
+        if (!enableSurfaceSliding) return;
+
+        foreach (var node in allNodes)
+        {
+            if (node == null) continue;
+
+            if (CanAutoClimb(node))
+            {
+                ApplyClimbingForce(node);
+            }
+        }
+    }
+
+    private void ApplyClimbingForce(Rigidbody2D node)
+    {
+        Vector2 climbDirection = (Vector2.up + GetMovementDirection() * 0.5f).normalized;
+
+        SlimeNodeBehavior nodeBehavior = node.GetComponent<SlimeNodeBehavior>();
+        float forceMultiplier = nodeBehavior != null && nodeBehavior.layerIndex == 2 ? 1f : 0.7f;
+
+        node.AddForce(climbDirection * autoClimbForce * forceMultiplier);
+        Debug.DrawRay(node.position, climbDirection * 0.8f, Color.magenta);
+    }
+
+    // УСИЛЕННАЯ СИСТЕМА ИЕРАРХИЧЕСКИХ СИЛ ДЛЯ КОМПЕНСАЦИИ ОТСУТСТВИЯ ПРУЖИН
+    private void ApplyHierarchicalForces()
+    {
+        if (!enableHierarchicalForces) return;
+
+        foreach (var nodeInfo in nodeHierarchy)
+        {
+            if (nodeInfo.node == null) continue;
+
+            if (nodeInfo.layerIndex == 0)
+            {
+                ApplyMasterInfluence(nodeInfo);
+            }
+            else if (nodeInfo.layerIndex == 1)
+            {
+                // УСИЛЕННОЕ ВЛИЯНИЕ НА СРЕДНИЕ УЗЛЫ
+                ApplyMasterInfluence(nodeInfo);
+
+                if (nodeInfo.masterNode != null)
+                {
+                    ApplyFollowerBehavior(nodeInfo.node, nodeInfo.masterNode, coreToMiddleForce * 1.5f);
+                }
+            }
+            else if (nodeInfo.layerIndex == 2 && nodeInfo.masterNode != null)
+            {
+                ApplyFollowerBehavior(nodeInfo.node, nodeInfo.masterNode, middleToSurfaceForce);
+            }
+        }
+    }
+
+    private void ApplyMasterInfluence(SlimeNodeInfo masterInfo)
+    {
+        if (masterInfo.influencedNodes == null) return;
+
+        foreach (var influencedNode in masterInfo.influencedNodes)
+        {
+            if (influencedNode == null) continue;
+
+            float distance = Vector2.Distance(masterInfo.node.position, influencedNode.position);
+            if (distance > hierarchicalInfluenceRadius) continue;
+
+            float force = masterInfo.layerIndex == 0 ? coreToMiddleForce : middleToSurfaceForce;
+            force = Mathf.Min(force * (distance / hierarchicalInfluenceRadius), maxHierarchicalForce);
+
+            Vector2 direction = (masterInfo.node.position - influencedNode.position).normalized;
+            influencedNode.AddForce(direction * force);
+
+            if (masterInfo.layerIndex == 0)
+                Debug.DrawLine(masterInfo.node.position, influencedNode.position, Color.red);
+            else
+                Debug.DrawLine(masterInfo.node.position, influencedNode.position, Color.yellow);
+        }
+    }
+
+    private void ApplyFollowerBehavior(Rigidbody2D follower, Rigidbody2D master, float baseForce)
+    {
+        float distance = Vector2.Distance(follower.position, master.position);
+        if (distance > hierarchicalInfluenceRadius) return;
+
+        float force = Mathf.Min(baseForce * (distance / hierarchicalInfluenceRadius), maxHierarchicalForce);
+        Vector2 direction = (master.position - follower.position).normalized;
+        follower.AddForce(direction * force);
+    }
+
+    private Vector2 GetMovementDirection()
+    {
+        Vector2 centerVelocity = GetCenterVelocity();
+        return centerVelocity.magnitude > 0.1f ? centerVelocity.normalized : Vector2.right;
+    }
+
+    private List<Rigidbody2D> allNodes
+    {
+        get
+        {
+            var all = new List<Rigidbody2D>();
+            all.AddRange(coreNodes);
+            all.AddRange(middleNodes);
+            all.AddRange(surfaceNodes);
+            return all;
+        }
+    }
+
     public void ReportSurfaceGroundContact(bool isContact)
     {
         if (isContact)
@@ -881,10 +1597,8 @@ public class SlimeCharacterController : MonoBehaviour
         return groundPercentage >= jumpGroundPercentage;
     }
 
-    // Public method for nodes to report being stuck
     public void ReportNodeStuck(Rigidbody2D node)
     {
-        // Find the node in our lists and mark it as stuck
         int index = FindNodeIndex(node);
         if (index >= 0 && index < nodeStuckStatus.Count)
         {
@@ -909,7 +1623,36 @@ public class SlimeCharacterController : MonoBehaviour
         return -1;
     }
 
-    // Public methods for ability system
+    public Vector2 GetCenterVelocity()
+    {
+        return centerBody.linearVelocity;
+    }
+
+    public bool IsStretching()
+    {
+        return isStretching;
+    }
+
+    public bool IsJumping()
+    {
+        return isJumping;
+    }
+
+    public float GetGroundContactPercentage()
+    {
+        return (float)surfaceGroundContactCount / surfaceNodesCount * 100f;
+    }
+
+    public float GetCurrentSlopeAngle()
+    {
+        return currentSlopeAngle;
+    }
+
+    public bool IsPositionLocked()
+    {
+        return isPositionLocked;
+    }
+
     public void ModifySlimeProperties(float massChange, float sizeChange, Color newColor, float duration)
     {
         StartCoroutine(TemporaryModification(massChange, sizeChange, newColor, duration));
@@ -950,24 +1693,43 @@ public class SlimeCharacterController : MonoBehaviour
             if (node != null) node.mass = 0.6f * currentMass;
     }
 
-    // Public methods for info display
-    public float GetGroundContactPercentage()
+    private void OnDrawGizmosSelected()
     {
-        return (float)surfaceGroundContactCount / surfaceNodesCount * 100f;
-    }
+        if (!enableTeleportThroughObstacles) return;
 
-    public Vector2 GetCenterVelocity()
-    {
-        return centerBody.linearVelocity;
-    }
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, teleportThreshold);
 
-    public bool IsLifted()
-    {
-        return isLifted;
-    }
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, minTeleportDistance);
 
-    public bool IsJumping()
-    {
-        return isJumping;
+        foreach (var node in allNodes)
+        {
+            if (node == null) continue;
+
+            float distance = Vector2.Distance(node.position, transform.position);
+            if (distance > teleportThreshold && node.linearVelocity.magnitude < 0.3f)
+            {
+                Gizmos.color = Color.magenta;
+                Gizmos.DrawWireSphere(node.position, 0.2f);
+            }
+        }
+
+        Gizmos.color = currentSlopeAngle > maxStableSlopeAngle ? Color.red : Color.green;
+        Gizmos.DrawRay(transform.position, GetSlopeDirection() * 1f);
+
+        if (isPositionLocked)
+        {
+            Gizmos.color = Color.blue;
+            Gizmos.DrawWireSphere(lockedPosition, 0.2f);
+        }
     }
+}
+
+public enum SlidingSolution
+{
+    None,
+    HorizontalSlide,
+    VerticalClimb,
+    CornerSlide
 }

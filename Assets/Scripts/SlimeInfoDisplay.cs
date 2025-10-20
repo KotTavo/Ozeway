@@ -69,7 +69,7 @@ public class SlimeInfoDisplay : MonoBehaviour
             // Получаем информацию о слизи
             float groundPercentage = slimeController.GetGroundContactPercentage();
             Vector2 velocity = slimeController.GetCenterVelocity();
-            bool isLifted = slimeController.IsLifted();
+            bool isLifted = slimeController.IsStretching();
             bool isJumping = slimeController.IsJumping();
 
             // Обновляем текст с информацией на русском
