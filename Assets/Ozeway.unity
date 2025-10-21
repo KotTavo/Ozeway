@@ -358,7 +358,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 681997688879546004, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: m_Radius
-      value: 0.1
+      value: 0.78
       objectReference: {fileID: 0}
     - target: {fileID: 1644865339916823554, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: m_LocalPosition.x
@@ -402,11 +402,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: moveSpeed
-      value: 10
+      value: 25
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: coreStiffness
-      value: 2000
+      value: 1500
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: jumpDecayRate
@@ -417,24 +417,40 @@ PrefabInstance:
       value: 45
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: unstuckRadius
+      value: 2.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: autoClimbForce
       value: 41
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: middleStiffness
-      value: 400
+      value: 600
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: autoGatherRadius
+      value: 2.04
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: climbAssistForce
       value: 20
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: inputStuckRadius
+      value: 1.27
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: jumpInitialSpeed
       value: 150
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: middleNodesCount
+      value: 15
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: surfaceStiffness
-      value: 60
+      value: 120
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: teleportCooldown
@@ -466,7 +482,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: fastFallMultiplier
-      value: 2
+      value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: maxAutoClimbHeight
@@ -489,8 +505,20 @@ PrefabInstance:
       value: 0.2
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: middleNodeMaxDistance
+      value: 1.34
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: maxSurfaceNodeDistance
       value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: obstacleDetectionRange
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: hierarchicalInfluenceRadius
+      value: 21.64
       objectReference: {fileID: 0}
     - target: {fileID: 4837882818450086158, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
       propertyPath: 'layerDistances.Array.data[1]'
@@ -500,14 +528,15 @@ PrefabInstance:
       propertyPath: m_Name
       value: Slime
       objectReference: {fileID: 0}
+    - target: {fileID: 6243790621485291592, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+      propertyPath: m_Layer
+      value: 10
+      objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 1492370743403970855, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 6243790621485291592, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 456992489}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
 --- !u!1 &435424528
 GameObject:
@@ -646,26 +675,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 49.835}
---- !u!1 &456992488 stripped
-GameObject:
-  m_CorrespondingSourceObject: {fileID: 6243790621485291592, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
-  m_PrefabInstance: {fileID: 354970406}
-  m_PrefabAsset: {fileID: 0}
---- !u!114 &456992489
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 456992488}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0d042213809580d43a66fedf3c4691a9, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SlimeNavigationSystem
-  enableOnlyForComplexCases: 1
-  complexCaseThreshold: 2.5
-  emergencyNavigationForce: 48.7
 --- !u!1 &883279199
 GameObject:
   m_ObjectHideFlags: 0

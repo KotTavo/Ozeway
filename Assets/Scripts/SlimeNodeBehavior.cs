@@ -2,165 +2,265 @@ using UnityEngine;
 
 public class SlimeNodeBehavior : MonoBehaviour
 {
-    [Header("=== ПОВЕДЕНИЕ СКОЛЬЖЕНИЯ ===")]
+    [Header("=== НАСТРОЙКИ СКОЛЬЖЕНИЯ ===")]
     public float personalSlideForce = 15f;
     public float slideDetectionDistance = 0.5f;
 
     public int layerIndex { get; private set; }
 
     private SlimeCharacterController slimeController;
-    private SlimeNavigationSystem navigationSystem;
     private Rigidbody2D nodeRigidbody;
     private Rigidbody2D centerBody;
+    private Collider2D nodeCollider;
     private float lastStuckCheck;
     private bool isStuck = false;
     private float stuckTimer = 0f;
     private bool isGrounded = false;
     private float maxDistanceFromCenter;
     private float maxNodeVelocity;
-    private Vector2 lastPosition;
-    private float stuckPositionTimer = 0f;
-    private float lastSlideCheck;
-    private const float SLIDE_CHECK_INTERVAL = 0.2f;
+    private float unstuckRadius;
+    private float autoGatherRadius;
+    private float inputStuckRadius;
 
-    // НОВОЕ: для лучшего отслеживания застревания
-    private float averageVelocity = 0f;
-    private const float VELOCITY_SMOOTHING = 0.9f;
+    // Системы восстановления
+    private bool isRecovering = false;
+    private bool isAutoGathering = false;
+    private float recoveryTimer = 0f;
+    private const float RECOVERY_DURATION = 1.0f;
+    private const float AUTO_GATHER_DURATION = 0.7f;
 
-    public void Initialize(SlimeCharacterController controller, Rigidbody2D center, int layer, float maxDistance, float maxVelocity)
+    public void Initialize(SlimeCharacterController controller, Rigidbody2D center, int layer,
+                          float maxDistance, float maxVelocity,
+                          float unstuckRadiusValue, float autoGatherRadiusValue, float inputStuckRadiusValue)
     {
         slimeController = controller;
         centerBody = center;
         nodeRigidbody = GetComponent<Rigidbody2D>();
+        nodeCollider = GetComponent<Collider2D>();
         layerIndex = layer;
         maxDistanceFromCenter = maxDistance;
         maxNodeVelocity = maxVelocity;
-        lastPosition = nodeRigidbody.position;
-
-        navigationSystem = controller.GetComponent<SlimeNavigationSystem>();
+        unstuckRadius = unstuckRadiusValue;
+        autoGatherRadius = autoGatherRadiusValue;
+        inputStuckRadius = inputStuckRadiusValue;
     }
 
     void Update()
     {
+        // Проверка застревания каждые 0.3 секунды
         if (Time.time - lastStuckCheck > 0.3f)
         {
             CheckIfStuck();
             lastStuckCheck = Time.time;
         }
 
-        // УЛУЧШЕННОЕ отслеживание застревания
-        float currentSpeed = nodeRigidbody.linearVelocity.magnitude;
-        averageVelocity = averageVelocity * VELOCITY_SMOOTHING + currentSpeed * (1f - VELOCITY_SMOOTHING);
-
-        if (Vector2.Distance(nodeRigidbody.position, lastPosition) < 0.02f)
+        // Обработка восстановления
+        if (isRecovering)
         {
-            stuckPositionTimer += Time.deltaTime;
-        }
-        else
-        {
-            stuckPositionTimer = Mathf.Max(0, stuckPositionTimer - Time.deltaTime * 2f);
-            lastPosition = nodeRigidbody.position;
+            HandleRecovery();
         }
 
-        if (Time.time - lastSlideCheck > SLIDE_CHECK_INTERVAL)
+        // Обработка автоматического кучкования
+        if (isAutoGathering)
         {
-            CheckPersonalSliding();
-            lastSlideCheck = Time.time;
+            HandleAutoGather();
         }
     }
 
     void CheckIfStuck()
     {
-        if (nodeRigidbody == null || centerBody == null) return;
+        if (nodeRigidbody == null || centerBody == null || isRecovering || isAutoGathering) return;
 
         float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
 
-        bool isFarFromCenter = distanceFromCenter > maxDistanceFromCenter * 0.8f;
-        bool isNotMoving = averageVelocity < 0.3f; // Используем сглаженную скорость
-        bool centerIsMoving = slimeController.GetCenterVelocity().magnitude > 0.5f;
-        bool isPositionStuck = stuckPositionTimer > 1.0f; // Уменьшил время для более быстрой реакции
-
-        bool shouldBeStuck = (isFarFromCenter && isNotMoving && centerIsMoving) || isPositionStuck;
+        // Основное застревание - за пределами максимального радиуса
+        bool shouldBeStuck = distanceFromCenter > unstuckRadius &&
+                            nodeRigidbody.linearVelocity.magnitude < 0.2f;
 
         if (shouldBeStuck && !isStuck)
         {
-            isStuck = true;
-            stuckTimer = 0f;
-            slimeController.ReportNodeStuck(nodeRigidbody);
-
-            if (navigationSystem != null)
-            {
-                navigationSystem.ForceNavigateNode(nodeRigidbody);
-            }
+            StartStuckRecovery();
         }
         else if (!shouldBeStuck && isStuck)
         {
             isStuck = false;
-            stuckPositionTimer = 0f;
+            stuckTimer = 0f;
         }
 
+        // Аварийное восстановление после длительного застревания
         if (isStuck)
         {
             stuckTimer += Time.deltaTime;
-            if (stuckTimer > 2f) // Уменьшил время до принудительного освобождения
+            if (stuckTimer > 3f)
             {
-                ForceUnstuck();
+                StartStuckRecovery();
                 stuckTimer = 0f;
             }
         }
     }
 
-    void CheckPersonalSliding()
+    public void StartAutoGather()
     {
-        if (nodeRigidbody == null) return;
+        if (isRecovering || isAutoGathering) return;
 
-        if (IsOnSlidableSurface() && slimeController.GetCenterVelocity().magnitude > 0.3f)
+        isAutoGathering = true;
+        recoveryTimer = 0f;
+
+        // Отключаем коллизию на время кучкования
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = false;
+        }
+    }
+
+    public void ForceGather()
+    {
+        if (isRecovering || isAutoGathering) return;
+
+        float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
+        if (distanceFromCenter > inputStuckRadius)
+        {
+            StartAutoGather();
+        }
+    }
+
+    void HandleAutoGather()
+    {
+        recoveryTimer += Time.deltaTime;
+
+        if (recoveryTimer < AUTO_GATHER_DURATION)
+        {
+            // Плавное перемещение не к самому центру, а к границе autoGatherRadius
+            float targetDistance = autoGatherRadius * 0.6f;
+            Vector2 targetDirection = (centerBody.position - nodeRigidbody.position).normalized;
+            Vector2 targetPosition = (Vector2)centerBody.position - targetDirection * targetDistance;
+
+            Vector2 newPosition = Vector2.Lerp(nodeRigidbody.position, targetPosition, recoveryTimer / AUTO_GATHER_DURATION);
+
+            // Добавляем небольшое случайное смещение для естественности
+            if (recoveryTimer > AUTO_GATHER_DURATION * 0.5f)
+            {
+                newPosition += Random.insideUnitCircle * 0.1f;
+            }
+
+            nodeRigidbody.MovePosition(newPosition);
+        }
+        else
+        {
+            // Завершение автоматического кучкования
+            EndAutoGather();
+        }
+    }
+
+    void EndAutoGather()
+    {
+        isAutoGathering = false;
+        recoveryTimer = 0f;
+
+        // Включаем коллизию обратно
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = true;
+        }
+
+        // Даем небольшой импульс в случайном направлении
+        Vector2 randomDir = Random.insideUnitCircle.normalized;
+        nodeRigidbody.AddForce(randomDir * 8f, ForceMode2D.Impulse);
+    }
+
+    void StartStuckRecovery()
+    {
+        if (isRecovering || isAutoGathering) return;
+
+        isStuck = true;
+        isRecovering = true;
+        recoveryTimer = 0f;
+
+        // Отключаем коллизию на время восстановления
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = false;
+        }
+    }
+
+    void HandleRecovery()
+    {
+        recoveryTimer += Time.deltaTime;
+
+        if (recoveryTimer < RECOVERY_DURATION)
+        {
+            // Плавное перемещение к центру с небольшим случайным смещением
+            Vector2 targetPosition = Vector2.Lerp(nodeRigidbody.position, centerBody.position, recoveryTimer / RECOVERY_DURATION);
+
+            // Добавляем небольшое случайное смещение
+            if (recoveryTimer > RECOVERY_DURATION * 0.7f)
+            {
+                targetPosition += Random.insideUnitCircle * 0.15f;
+            }
+
+            nodeRigidbody.MovePosition(targetPosition);
+        }
+        else
+        {
+            // Завершение восстановления
+            EndRecovery();
+        }
+    }
+
+    void EndRecovery()
+    {
+        isRecovering = false;
+        isStuck = false;
+        stuckTimer = 0f;
+
+        // Включаем коллизию обратно
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = true;
+        }
+
+        // Даем небольшой импульс в случайном направлении
+        Vector2 randomDir = Random.insideUnitCircle.normalized;
+        nodeRigidbody.AddForce(randomDir * 12f, ForceMode2D.Impulse);
+    }
+
+    void FixedUpdate()
+    {
+        // Применяем силы скольжения для улучшения движения по наклонным поверхностям
+        if (!isRecovering && !isAutoGathering && IsOnSlidableSurface() && slimeController.GetCenterVelocity().magnitude > 0.3f)
         {
             ApplyPersonalSlideForce();
         }
     }
 
-    private bool IsOnSlidableSurface()
+    bool IsOnSlidableSurface()
     {
+        if (nodeCollider != null && !nodeCollider.enabled) return false;
+
         RaycastHit2D hit = Physics2D.Raycast(nodeRigidbody.position, Vector2.down, slideDetectionDistance, slimeController.obstacleLayers);
-        if (hit.collider != null && hit.collider.CompareTag("Ground"))
-        {
-            float surfaceAngle = Vector2.Angle(hit.normal, Vector2.up);
-            return surfaceAngle < 60f;
-        }
-        return false;
+        return hit.collider != null && hit.collider.CompareTag("Ground");
     }
 
-    private void ApplyPersonalSlideForce()
+    void ApplyPersonalSlideForce()
     {
         Vector2 slideDirection = slimeController.GetCenterVelocity().normalized;
         nodeRigidbody.AddForce(slideDirection * personalSlideForce);
-        Debug.DrawRay(nodeRigidbody.position, slideDirection * 0.3f, Color.cyan);
     }
 
-    void ForceUnstuck()
+    public bool IsGathering()
     {
-        if (centerBody == null || nodeRigidbody == null) return;
-
-        Vector2 toCenter = (centerBody.position - nodeRigidbody.position).normalized;
-        Vector2 randomDir = Random.insideUnitCircle.normalized * 0.2f; // Уменьшил случайное смещение
-        Vector2 unstuckDirection = (toCenter + randomDir).normalized;
-
-        // Более мягкое освобождение
-        nodeRigidbody.AddForce(unstuckDirection * 150f, ForceMode2D.Impulse);
-
-        isStuck = false;
-        stuckTimer = 0f;
-        stuckPositionTimer = 0f;
+        return isRecovering || isAutoGathering;
     }
 
     void OnCollisionEnter2D(Collision2D collision)
     {
+        if (isRecovering || isAutoGathering) return;
+
         if (collision.gameObject.CompareTag("Ground"))
         {
             isGrounded = true;
 
-            if (layerIndex == 2)
+            if (layerIndex == 2) // surface layer
             {
                 slimeController.ReportSurfaceGroundContact(true);
             }
@@ -169,11 +269,13 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void OnCollisionExit2D(Collision2D collision)
     {
+        if (isRecovering || isAutoGathering) return;
+
         if (collision.gameObject.CompareTag("Ground"))
         {
             isGrounded = false;
 
-            if (layerIndex == 2)
+            if (layerIndex == 2) // surface layer
             {
                 slimeController.ReportSurfaceGroundContact(false);
             }
@@ -182,50 +284,37 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void OnCollisionStay2D(Collision2D collision)
     {
-        if (collision.gameObject.CompareTag("Ground"))
+        if (isRecovering || isAutoGathering) return;
+
+        if (collision.gameObject.CompareTag("Ground") && nodeRigidbody.linearVelocity.magnitude < 0.2f)
         {
-            foreach (ContactPoint2D contact in collision.contacts)
-            {
-                float contactAngle = Vector2.Angle(contact.normal, Vector2.up);
-
-                if (contactAngle < 45f)
-                {
-                    Vector2 slideDir = new Vector2(-contact.normal.y, contact.normal.x);
-                    if (Vector2.Dot(slideDir, slimeController.GetCenterVelocity().normalized) < 0)
-                        slideDir = -slideDir;
-
-                    nodeRigidbody.AddForce(slideDir * personalSlideForce * 0.5f);
-                }
-            }
-
-            // УСИЛЕННОЕ отталкивание от препятствий
-            if (nodeRigidbody.linearVelocity.magnitude < 0.3f)
-            {
-                ContactPoint2D contact = collision.contacts[0];
-                Vector2 pushDir = (nodeRigidbody.position - contact.point).normalized;
-                nodeRigidbody.AddForce(pushDir * 15f); // Увеличил силу отталкивания
-            }
+            // Легкое подталкивание для предотвращения залипания
+            ContactPoint2D contact = collision.contacts[0];
+            Vector2 pushDir = (nodeRigidbody.position - contact.point).normalized;
+            nodeRigidbody.AddForce(pushDir * 5f);
         }
     }
 
-    private void OnDrawGizmosSelected()
+    // Визуализация в редакторе
+    void OnDrawGizmosSelected()
     {
         if (nodeRigidbody == null) return;
 
-        if (isStuck)
+        if (isRecovering)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawWireSphere(transform.position, 0.2f);
+            Gizmos.DrawLine(transform.position, centerBody.position);
+        }
+        else if (isAutoGathering)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(transform.position, 0.15f);
+        }
+        else if (isStuck)
         {
             Gizmos.color = Color.red;
             Gizmos.DrawWireSphere(transform.position, 0.15f);
-        }
-        else if (isGrounded)
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireSphere(transform.position, 0.08f);
-        }
-        else
-        {
-            Gizmos.color = Color.white;
-            Gizmos.DrawWireSphere(transform.position, 0.05f);
         }
     }
 }
