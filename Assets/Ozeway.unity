@@ -267,6 +267,7 @@ GameObject:
   - component: {fileID: 136701617}
   - component: {fileID: 136701616}
   - component: {fileID: 136701615}
+  - component: {fileID: 136701618}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -348,6 +349,30 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &136701618
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 136701614}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f105c6056d02d0a4391b0d3c26cd00e4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SmoothCameraFollow2D
+  target: {fileID: 354970407}
+  offset: {x: 0, y: 1, z: -10}
+  smoothSpeedInsideZone: 0.1
+  smoothSpeedOutsideZone: 0.3
+  maxSpeed: 50
+  zoomSpeed: 2
+  safeZoneSize: {x: 2, y: 1}
+  showSafeZoneGizmo: 1
+  safeZoneColor: {r: 0.5, g: 0.8, b: 1, a: 0.2}
+  useBounds: 0
+  minBounds: {x: 0, y: 0}
+  maxBounds: {x: 0, y: 0}
 --- !u!1001 &354970406
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -557,6 +582,11 @@ PrefabInstance:
       insertIndex: -1
       addedObject: {fileID: 870156945}
   m_SourcePrefab: {fileID: 100100000, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+--- !u!4 &354970407 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 1644865339916823554, guid: 71371ad3496d4774c88e27c055486a1c, type: 3}
+  m_PrefabInstance: {fileID: 354970406}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &435424528
 GameObject:
   m_ObjectHideFlags: 0
