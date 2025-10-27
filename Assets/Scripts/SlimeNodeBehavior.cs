@@ -29,6 +29,9 @@ public class SlimeNodeBehavior : MonoBehaviour
     private const float RECOVERY_DURATION = 1.0f;
     private const float AUTO_GATHER_DURATION = 0.7f;
 
+    // Флаг завершенной инициализации
+    private bool isInitialized = false;
+
     public void Initialize(SlimeCharacterController controller, Rigidbody2D center, int layer,
                           float maxDistance, float maxVelocity,
                           float unstuckRadiusValue, float autoGatherRadiusValue, float inputStuckRadiusValue)
@@ -43,10 +46,42 @@ public class SlimeNodeBehavior : MonoBehaviour
         unstuckRadius = unstuckRadiusValue;
         autoGatherRadius = autoGatherRadiusValue;
         inputStuckRadius = inputStuckRadiusValue;
+
+        // Проверяем критически важные компоненты
+        if (nodeRigidbody == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: Rigidbody2D not found on {gameObject.name}");
+            return;
+        }
+
+        if (slimeController == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: SlimeController not assigned on {gameObject.name}");
+            return;
+        }
+
+        if (centerBody == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: CenterBody not assigned on {gameObject.name}");
+            return;
+        }
+
+        isInitialized = true;
+    }
+
+    // Метод для безопасной проверки инициализации
+    private bool IsProperlyInitialized()
+    {
+        return isInitialized &&
+               nodeRigidbody != null &&
+               slimeController != null &&
+               centerBody != null;
     }
 
     void Update()
     {
+        if (!IsProperlyInitialized()) return;
+
         // Проверка застревания каждые 0.3 секунды
         if (Time.time - lastStuckCheck > 0.3f)
         {
@@ -69,7 +104,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void CheckIfStuck()
     {
-        if (nodeRigidbody == null || centerBody == null || isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
 
@@ -101,7 +136,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     public void StartAutoGather()
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         isAutoGathering = true;
         recoveryTimer = 0f;
@@ -115,7 +150,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     public void ForceGather()
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
         if (distanceFromCenter > inputStuckRadius)
@@ -126,6 +161,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void HandleAutoGather()
     {
+        if (!IsProperlyInitialized()) return;
+
         recoveryTimer += Time.deltaTime;
 
         if (recoveryTimer < AUTO_GATHER_DURATION)
@@ -154,6 +191,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void EndAutoGather()
     {
+        if (!IsProperlyInitialized()) return;
+
         isAutoGathering = false;
         recoveryTimer = 0f;
 
@@ -170,7 +209,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void StartStuckRecovery()
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         isStuck = true;
         isRecovering = true;
@@ -185,6 +224,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void HandleRecovery()
     {
+        if (!IsProperlyInitialized()) return;
+
         recoveryTimer += Time.deltaTime;
 
         if (recoveryTimer < RECOVERY_DURATION)
@@ -209,6 +250,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void EndRecovery()
     {
+        if (!IsProperlyInitialized()) return;
+
         isRecovering = false;
         isStuck = false;
         stuckTimer = 0f;
@@ -226,6 +269,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (!IsProperlyInitialized()) return;
+
         // Применяем силы скольжения для улучшения движения по наклонным поверхностям
         if (!isRecovering && !isAutoGathering && IsOnSlidableSurface() && slimeController.GetCenterVelocity().magnitude > 0.3f)
         {
@@ -235,6 +280,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     bool IsOnSlidableSurface()
     {
+        if (!IsProperlyInitialized()) return false;
         if (nodeCollider != null && !nodeCollider.enabled) return false;
 
         RaycastHit2D hit = Physics2D.Raycast(nodeRigidbody.position, Vector2.down, slideDetectionDistance, slimeController.obstacleLayers);
@@ -243,6 +289,8 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void ApplyPersonalSlideForce()
     {
+        if (!IsProperlyInitialized()) return;
+
         Vector2 slideDirection = slimeController.GetCenterVelocity().normalized;
         nodeRigidbody.AddForce(slideDirection * personalSlideForce);
     }
@@ -254,7 +302,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D collision)
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         if (collision.gameObject.CompareTag("Ground"))
         {
@@ -269,7 +317,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void OnCollisionExit2D(Collision2D collision)
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         if (collision.gameObject.CompareTag("Ground"))
         {
@@ -284,7 +332,7 @@ public class SlimeNodeBehavior : MonoBehaviour
 
     void OnCollisionStay2D(Collision2D collision)
     {
-        if (isRecovering || isAutoGathering) return;
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
 
         if (collision.gameObject.CompareTag("Ground") && nodeRigidbody.linearVelocity.magnitude < 0.2f)
         {
@@ -298,7 +346,7 @@ public class SlimeNodeBehavior : MonoBehaviour
     // Визуализация в редакторе
     void OnDrawGizmosSelected()
     {
-        if (nodeRigidbody == null) return;
+        if (!IsProperlyInitialized()) return;
 
         if (isRecovering)
         {
