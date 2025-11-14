@@ -1,0 +1,5023 @@
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CameraFollow2D.cs
+================================================================================
+
+using UnityEngine;
+
+public class SmoothCameraFollow2D : MonoBehaviour
+{
+    [Header("Target Settings")]
+    [SerializeField] private Transform target; // Объект, за которым следует камера
+    [SerializeField] private Vector3 offset = new Vector3(0f, 0f, -10f); // Смещение камеры
+
+    [Header("Follow Settings")]
+    [SerializeField] private float smoothSpeedInsideZone = 0.1f; // Плавность внутри Safe зоны
+    [SerializeField] private float smoothSpeedOutsideZone = 0.3f; // Плавность вне Safe зоны
+    [SerializeField] private float maxSpeed = 10f; // Максимальная скорость движения камеры
+    [SerializeField] private float zoomSpeed = 2f; // Скорость изменения зума
+
+    [Header("Safe Zone Settings")]
+    [SerializeField] private Vector2 safeZoneSize = new Vector2(2f, 1f); // Размер Safe зоны
+    [SerializeField] private bool showSafeZoneGizmo = true; // Показывать зону в редакторе
+    [SerializeField] private Color safeZoneColor = new Color(0.5f, 0.8f, 1f, 0.2f); // Цвет зоны
+
+    [Header("Bounds Settings")]
+    [SerializeField] private bool useBounds = false; // Ограничивать движение камеры
+    [SerializeField] private Vector2 minBounds; // Минимальные границы
+    [SerializeField] private Vector2 maxBounds; // Максимальные границы
+
+    private Vector3 velocity = Vector3.zero;
+    private Bounds safeZoneBounds;
+    private float targetOrthographicSize;
+    private bool isFocusMode = false;
+    private Vector3 focusPosition;
+    private float focusSize;
+
+    private void Start()
+    {
+        if (target == null)
+        {
+            Debug.LogError("Camera target is not assigned!");
+            enabled = false;
+            return;
+        }
+
+        targetOrthographicSize = Camera.main.orthographicSize;
+        UpdateSafeZone();
+    }
+
+    private void LateUpdate()
+    {
+        if (isFocusMode)
+        {
+            HandleFocusMode();
+        }
+        else
+        {
+            HandleFollowMode();
+        }
+
+        UpdateCameraZoom();
+    }
+
+    private void HandleFollowMode()
+    {
+        UpdateSafeZone();
+
+        // Вычисляем желаемую позицию камеры
+        Vector3 targetPosition = target.position + offset;
+
+        // Определяем, находится ли цель вне Safe зоны
+        bool isOutsideSafeZone = !safeZoneBounds.Contains(target.position);
+
+        // Выбираем скорость в зависимости от положения цели
+        float currentSmoothSpeed = isOutsideSafeZone ? smoothSpeedOutsideZone : smoothSpeedInsideZone;
+
+        // Если включены границы, ограничиваем позицию камеры
+        if (useBounds)
+        {
+            targetPosition.x = Mathf.Clamp(targetPosition.x, minBounds.x, maxBounds.x);
+            targetPosition.y = Mathf.Clamp(targetPosition.y, minBounds.y, maxBounds.y);
+        }
+
+        // Плавное перемещение камеры с ограничением скорости
+        transform.position = Vector3.SmoothDamp(
+            transform.position,
+            targetPosition,
+            ref velocity,
+            currentSmoothSpeed,
+            maxSpeed,
+            Time.deltaTime
+        );
+    }
+
+    private void HandleFocusMode()
+    {
+        // Плавное перемещение камеры к точке фокусировки
+        transform.position = Vector3.SmoothDamp(
+            transform.position,
+            focusPosition,
+            ref velocity,
+            smoothSpeedInsideZone,
+            maxSpeed,
+            Time.deltaTime
+        );
+    }
+
+    private void UpdateCameraZoom()
+    {
+        // Плавное изменение размера камеры
+        Camera.main.orthographicSize = Mathf.Lerp(
+            Camera.main.orthographicSize,
+            targetOrthographicSize,
+            zoomSpeed * Time.deltaTime);
+    }
+
+    private void UpdateSafeZone()
+    {
+        // Обновляем Safe зону (центр вокруг текущей позиции камеры)
+        safeZoneBounds = new Bounds(transform.position, safeZoneSize);
+    }
+
+    // Метод для активации режима фокусировки
+    public void EnterFocusMode(Vector3 position, float zoomSize)
+    {
+        isFocusMode = true;
+        focusPosition = new Vector3(position.x, position.y, transform.position.z);
+        targetOrthographicSize = zoomSize;
+    }
+
+    // Метод для выхода из режима фокусировки
+    public void ExitFocusMode()
+    {
+        isFocusMode = false;
+        targetOrthographicSize = GetComponent<Camera>().orthographicSize;
+    }
+
+    // Метод для установки границ камеры
+    public void SetBounds(Vector2 min, Vector2 max)
+    {
+        minBounds = min;
+        maxBounds = max;
+        useBounds = true;
+    }
+
+    // Метод для изменения размера Safe зоны
+    public void SetSafeZoneSize(Vector2 newSize)
+    {
+        safeZoneSize = newSize;
+        UpdateSafeZone();
+    }
+
+    // Отрисовка Safe зоны в редакторе
+    private void OnDrawGizmos()
+    {
+        if (!showSafeZoneGizmo || !Application.isPlaying) return;
+
+        Gizmos.color = safeZoneColor;
+        Gizmos.DrawCube(safeZoneBounds.center, safeZoneBounds.size);
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreAbility.cs
+================================================================================
+
+using UnityEngine;
+
+public abstract class CoreAbility : ScriptableObject
+{
+    [Header("Базовая информация")]
+    public string abilityName;
+    public string description;
+    public float cooldown = 1f;
+    public Sprite icon;
+
+    [Header("Визуальные эффекты")]
+    public GameObject castEffect;
+    public AudioClip castSound;
+
+    protected SlimeCharacterController slimeController;
+    protected CoreInventory coreInventory;
+    protected Camera mainCamera;
+
+    protected float lastUsedTime;
+    protected bool isOnCooldown = false;
+
+    public virtual void Initialize(SlimeCharacterController slime, CoreInventory inventory)
+    {
+        slimeController = slime;
+        coreInventory = inventory;
+        mainCamera = Camera.main;
+        lastUsedTime = -cooldown; // Чтобы способность была доступна сразу
+    }
+
+    public abstract void ExecuteAbility();
+
+    public virtual bool CanExecute()
+    {
+        if (slimeController == null)
+        {
+            Debug.LogWarning($"Ability {abilityName} cannot execute: slimeController is null");
+            return false;
+        }
+
+        if (isOnCooldown)
+        {
+            float timeSinceLastUse = Time.time - lastUsedTime;
+            if (timeSinceLastUse < cooldown)
+            {
+                Debug.Log($"Ability {abilityName} on cooldown: {cooldown - timeSinceLastUse:F1}s remaining");
+                return false;
+            }
+            isOnCooldown = false;
+        }
+
+        return true;
+    }
+
+    protected void StartCooldown()
+    {
+        lastUsedTime = Time.time;
+        isOnCooldown = true;
+    }
+
+    protected Vector2 GetMouseDirection()
+    {
+        if (mainCamera == null || slimeController == null)
+            return Vector2.right;
+
+        Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+        Vector2 direction = (mouseWorldPos - slimeController.transform.position).normalized;
+        return direction;
+    }
+
+    protected Vector2 GetShootSpawnPosition(Vector2 direction, float offset = 0.5f)
+    {
+        if (slimeController == null)
+            return Vector2.zero;
+
+        // Получаем коллайдер слизи для определения границы
+        CircleCollider2D collider = slimeController.GetComponent<CircleCollider2D>();
+        float radius = collider != null ? collider.radius : 0.5f;
+
+        return (Vector2)slimeController.transform.position + direction * (radius + offset);
+    }
+
+    protected void PlayCastEffects(Vector3 position)
+    {
+        // Визуальный эффект
+        if (castEffect != null)
+        {
+            GameObject effect = Instantiate(castEffect, position, Quaternion.identity);
+            Destroy(effect, 3f);
+        }
+
+        // Звуковой эффект
+        if (castSound != null && slimeController != null)
+        {
+            AudioSource.PlayClipAtPoint(castSound, position);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreData.cs
+================================================================================
+
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "New Core", menuName = "Slime Cores/Core Data")]
+public class CoreData : ScriptableObject
+{
+    [Header("Основная информация")]
+    public string coreID = "core_stone";
+    public string coreName = "Ядро-камня";
+    public CoreRarity rarity = CoreRarity.Common;
+    public int version = 1;
+
+    [Header("Визуальные настройки")]
+    public Sprite inventoryIcon;
+    public GameObject worldModel;
+    public Color coreColor = Color.white;
+
+    [Header("Настройки орбиты")]
+    [Range(0.001f, 3.0f)] // Изменено с 0.1f на 0.025f
+    public float orbitScale = 1.0f;
+    [Range(0.1f, 3.0f)]
+    public float orbitRadiusMultiplier = 1.0f;
+
+    [Header("Влияние на физику слизи")]
+    [Range(-0.5f, 0.5f)]
+    public float massMultiplier = 0f;
+    [Range(-0.5f, 0.5f)]
+    public float speedMultiplier = 0f;
+    [Range(0f, 1f)]
+    public float inertiaMultiplier = 0f;
+    [Range(-0.5f, 0.5f)]
+    public float middleStiffnessMultiplier = 0f;
+    [Range(-0.5f, 0.5f)]
+    public float surfaceStiffnessMultiplier = 0f;
+
+    [Header("Способности")]
+    public CoreAbility EAbility;
+    public CoreAbility QAbility;
+}
+
+public enum CoreRarity
+{
+    Common,
+    Special
+}   
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreInventory.cs
+================================================================================
+
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CoreInventory : MonoBehaviour
+{
+    [Header("Настройки инвентаря")]
+    public int maxCores = 9;
+    public int quickSlotCount = 3;
+
+    [Header("Текущее состояние")]
+    public List<CoreData> allCores = new List<CoreData>();
+    public CoreData[] quickSlots;
+    public CoreData activeCore;
+    public int activeQuickSlotIndex = 0;
+
+    private SlimeCharacterController slimeController;
+    private CoreUIManager uiManager;
+    private CoreOrbitController orbitController;
+
+    // События для UI
+    public System.Action<CoreData> OnCoreChanged;
+    public System.Action OnQuickSlotsUpdated;
+
+    void Start()
+    {
+        slimeController = GetComponent<SlimeCharacterController>();
+        uiManager = FindObjectOfType<CoreUIManager>();
+        orbitController = GetComponent<CoreOrbitController>();
+
+        // Подписываемся на событие смены ядра
+        OnCoreChanged += OnActiveCoreChanged;
+
+        InitializeQuickSlots();
+
+        if (allCores.Count > 0 && quickSlots[0] != null)
+        {
+            SwitchToQuickSlot(0);
+        }
+
+        if (orbitController != null && allCores.Count > 0)
+        {
+            orbitController.InitializeOrbits();
+        }
+    }
+
+    void InitializeQuickSlots()
+    {
+        quickSlots = new CoreData[quickSlotCount];
+
+        // Заполняем быстрые слоты первыми ядрами из инвентаря
+        for (int i = 0; i < Mathf.Min(quickSlotCount, allCores.Count); i++)
+        {
+            quickSlots[i] = allCores[i];
+        }
+    }
+
+    void Update()
+    {
+        HandleInput();
+    }
+
+    void HandleInput()
+    {
+        // Переключение быстрых слотов 1, 2, 3
+        if (Input.GetKeyDown(KeyCode.Alpha1)) SwitchToQuickSlot(0);
+        if (Input.GetKeyDown(KeyCode.Alpha2)) SwitchToQuickSlot(1);
+        if (Input.GetKeyDown(KeyCode.Alpha3)) SwitchToQuickSlot(2);
+
+        // Использование способностей активного ядра
+        if (activeCore != null)
+        {
+            if (Input.GetKeyDown(KeyCode.E) && activeCore.EAbility != null)
+            {
+                ExecuteAbility(activeCore.EAbility, "E");
+            }
+
+            if (Input.GetKeyDown(KeyCode.Q) && activeCore.QAbility != null)
+            {
+                ExecuteAbility(activeCore.QAbility, "Q");
+            }
+        }
+    }
+
+    // Метод для выполнения способностей
+    private void ExecuteAbility(CoreAbility ability, string abilityKey)
+    {
+        if (ability.CanExecute())
+        {
+            Debug.Log($"Executing {abilityKey} ability: {ability.abilityName}");
+            ability.ExecuteAbility();
+        }
+        else
+        {
+            Debug.LogWarning($"Cannot execute {abilityKey} ability: {ability.abilityName}");
+        }
+    }
+
+    public void SwitchToQuickSlot(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= quickSlotCount)
+        {
+            Debug.LogWarning($"Неверный индекс слота: {slotIndex}");
+            return;
+        }
+
+        if (quickSlots[slotIndex] == null)
+        {
+            Debug.LogWarning($"Слот {slotIndex} пустой");
+            return;
+        }
+
+        activeQuickSlotIndex = slotIndex;
+        SetActiveCore(quickSlots[slotIndex]);
+    }
+
+    public void SetActiveCore(CoreData newCore)
+    {
+        if (newCore == activeCore) return;
+
+        ResetCoreEffects();
+        activeCore = newCore;
+        ApplyCoreEffects();
+
+        OnCoreChanged?.Invoke(activeCore);
+
+        Debug.Log($"Активное ядро изменено на: {activeCore.coreName}");
+        if (activeCore.EAbility != null)
+        {
+            Debug.Log($"E Ability: {activeCore.EAbility.abilityName}, Initialized: {activeCore.EAbility.CanExecute()}");
+        }
+        if (activeCore.QAbility != null)
+        {
+            Debug.Log($"Q Ability: {activeCore.QAbility.abilityName}, Initialized: {activeCore.QAbility.CanExecute()}");
+        }
+    }
+
+    private void OnActiveCoreChanged(CoreData newActiveCore)
+    {
+        if (orbitController != null)
+        {
+            orbitController.OnActiveCoreChanged(newActiveCore);
+        }
+    }
+
+    void ResetCoreEffects()
+    {
+        if (activeCore == null || slimeController == null) return;
+
+        // Восстанавливаем оригинальные значения
+        slimeController.currentMass /= (1 + activeCore.massMultiplier);
+        slimeController.moveSpeed /= (1 + activeCore.speedMultiplier);
+        slimeController.middleStiffness /= (1 + activeCore.middleStiffnessMultiplier);
+        slimeController.surfaceStiffness /= (1 + activeCore.surfaceStiffnessMultiplier);
+    }
+
+    void ApplyCoreEffects()
+    {
+        if (activeCore == null || slimeController == null) return;
+
+        // Применяем модификаторы к физике слизи
+        slimeController.currentMass *= (1 + activeCore.massMultiplier);
+        slimeController.moveSpeed *= (1 + activeCore.speedMultiplier);
+        slimeController.middleStiffness *= (1 + activeCore.middleStiffnessMultiplier);
+        slimeController.surfaceStiffness *= (1 + activeCore.surfaceStiffnessMultiplier);
+
+        // Инициализируем способности
+        InitializeAbilities();
+
+        Debug.Log($"Применены эффекты ядра: {activeCore.coreName}");
+    }
+
+    private void InitializeAbilities()
+    {
+        if (activeCore == null || slimeController == null) return;
+
+        if (activeCore.EAbility != null)
+        {
+            activeCore.EAbility.Initialize(slimeController, this);
+            Debug.Log($"E ability initialized: {activeCore.EAbility.abilityName}");
+        }
+
+        if (activeCore.QAbility != null)
+        {
+            activeCore.QAbility.Initialize(slimeController, this);
+            Debug.Log($"Q ability initialized: {activeCore.QAbility.abilityName}");
+        }
+    }
+
+    // Метод для отладки получения slimeController из способности
+    private SlimeCharacterController GetSlimeControllerForAbility(CoreAbility ability)
+    {
+        // Используем рефлексию для доступа к protected полю
+        var field = typeof(CoreAbility).GetField("slimeController",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return field?.GetValue(ability) as SlimeCharacterController;
+    }
+
+    public void AddCore(CoreData core)
+    {
+        if (allCores.Count >= maxCores)
+        {
+            Debug.LogWarning("Инвентарь ядер полон!");
+            return;
+        }
+
+        if (!allCores.Contains(core))
+        {
+            allCores.Add(core);
+
+            // Добавляем ядро на орбиту
+            if (orbitController != null)
+            {
+                orbitController.AddCoreToOrbit(core);
+            }
+
+            // Если есть пустые быстрые слоты, автоматически назначаем ядро
+            for (int i = 0; i < quickSlots.Length; i++)
+            {
+                if (quickSlots[i] == null)
+                {
+                    AssignCoreToQuickSlot(core, i);
+                    break;
+                }
+            }
+
+            Debug.Log($"Добавлено ядро: {core.coreName}");
+        }
+    }
+
+    public void RemoveCore(CoreData core)
+    {
+        if (allCores.Contains(core))
+        {
+            // Если удаляемое ядро активно, переключаемся на другое
+            if (activeCore == core)
+            {
+                // Ищем другое ядро для активации
+                CoreData newActiveCore = null;
+                foreach (CoreData otherCore in allCores)
+                {
+                    if (otherCore != core)
+                    {
+                        newActiveCore = otherCore;
+                        break;
+                    }
+                }
+
+                if (newActiveCore != null)
+                {
+                    SetActiveCore(newActiveCore);
+                }
+                else
+                {
+                    activeCore = null;
+                    ResetCoreEffects();
+                }
+            }
+
+            // Удаляем из быстрых слотов
+            for (int i = 0; i < quickSlots.Length; i++)
+            {
+                if (quickSlots[i] == core)
+                {
+                    quickSlots[i] = null;
+                }
+            }
+
+            allCores.Remove(core);
+
+            // Удаляем ядро с орбиты
+            if (orbitController != null)
+            {
+                orbitController.RemoveCoreFromOrbit(core);
+            }
+
+            OnQuickSlotsUpdated?.Invoke();
+
+            Debug.Log($"Удалено ядро: {core.coreName}");
+        }
+    }
+
+    public void AssignCoreToQuickSlot(CoreData core, int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= quickSlotCount)
+        {
+            Debug.LogWarning($"Неверный индекс слота: {slotIndex}");
+            return;
+        }
+
+        quickSlots[slotIndex] = core;
+        OnQuickSlotsUpdated?.Invoke();
+
+        Debug.Log($"Ядро {core.coreName} назначено на слот {slotIndex + 1}");
+
+        // Если слот активный, сразу применяем эффекты
+        if (slotIndex == activeQuickSlotIndex)
+        {
+            SetActiveCore(core);
+        }
+    }
+
+    public void ClearQuickSlot(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= quickSlotCount) return;
+
+        // Если очищаем активный слот, деактивируем ядро
+        if (slotIndex == activeQuickSlotIndex && quickSlots[slotIndex] != null)
+        {
+            ResetCoreEffects();
+            activeCore = null;
+            OnCoreChanged?.Invoke(null);
+        }
+
+        quickSlots[slotIndex] = null;
+        OnQuickSlotsUpdated?.Invoke();
+
+        Debug.Log($"Слот {slotIndex + 1} очищен");
+    }
+
+    public bool HasCore(string coreID)
+    {
+        foreach (CoreData core in allCores)
+        {
+            if (core.coreID == coreID)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public CoreData GetCoreByID(string coreID)
+    {
+        foreach (CoreData core in allCores)
+        {
+            if (core.coreID == coreID)
+            {
+                return core;
+            }
+        }
+        return null;
+    }
+
+    public int GetCoreCount()
+    {
+        return allCores.Count;
+    }
+
+    public bool IsInventoryFull()
+    {
+        return allCores.Count >= maxCores;
+    }
+
+    // Метод для принудительного обновления UI
+    public void RefreshUI()
+    {
+        OnCoreChanged?.Invoke(activeCore);
+        OnQuickSlotsUpdated?.Invoke();
+    }
+
+    // Метод для сброса всего инвентаря (для тестирования)
+    public void ResetInventory()
+    {
+        // Сбрасываем активное ядро
+        if (activeCore != null)
+        {
+            ResetCoreEffects();
+            activeCore = null;
+        }
+
+        // Очищаем списки
+        allCores.Clear();
+        quickSlots = new CoreData[quickSlotCount];
+        activeQuickSlotIndex = 0;
+
+        // Очищаем орбиты
+        if (orbitController != null)
+        {
+            orbitController.ClearOrbits();
+        }
+
+        // Обновляем UI
+        RefreshUI();
+
+        Debug.Log("Инвентарь ядер сброшен");
+    }
+
+    // Визуализация в редакторе
+    void OnDrawGizmosSelected()
+    {
+        if (activeCore != null)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(transform.position, 0.5f);
+            Gizmos.DrawIcon(transform.position + Vector3.up * 0.7f, "CoreIcon", true);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreOrbitController.cs
+================================================================================
+
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CoreOrbitController : MonoBehaviour
+{
+    [Header("Настройки орбиты")]
+    public float baseOrbitRadius = 1.5f;
+    public float rotationSpeed = 90f;
+    public bool clockwise = true;
+
+    [Header("Настройки размера ядер")]
+    [Range(0.025f, 3.0f)]
+    public float globalCoreScale = 1.0f;
+    public bool scaleWithMass = true;
+    public float sizeReductionMultiplier = 0.1f;
+
+    [Header("Настройки анимации центра")]
+    public float centerTransitionSpeed = 5f;
+    public float centerScaleMultiplier = 1.5f;
+
+    [Header("Ссылки")]
+    public CoreInventory coreInventory;
+    public List<GameObject> orbitingCores = new List<GameObject>();
+
+    private List<Transform> coreTransforms = new List<Transform>();
+    private List<float> coreAngles = new List<float>();
+    private List<CoreData> coreDataList = new List<CoreData>();
+    private List<bool> isMovingToCenter = new List<bool>();
+    private List<bool> isMovingToOrbit = new List<bool>();
+    private List<float> transitionProgress = new List<float>();
+    private List<Vector3> transitionStartPos = new List<Vector3>();
+    private List<Vector3> transitionTargetPos = new List<Vector3>();
+    private List<Vector3> transitionStartScale = new List<Vector3>();
+    private List<Vector3> transitionTargetScale = new List<Vector3>();
+
+    private CoreData previousActiveCore = null;
+
+    void Start()
+    {
+        if (coreInventory == null)
+            coreInventory = GetComponent<CoreInventory>();
+
+        InitializeOrbits();
+    }
+
+    void Update()
+    {
+        UpdateOrbits();
+        UpdateCoreTransitions();
+    }
+
+    public void InitializeOrbits()
+    {
+        ClearOrbits();
+
+        for (int i = 0; i < coreInventory.allCores.Count; i++)
+        {
+            CreateOrbitingCore(coreInventory.allCores[i], i);
+        }
+
+        // Если есть активное ядро, перемещаем его в центр
+        if (coreInventory.activeCore != null)
+        {
+            int activeIndex = coreDataList.IndexOf(coreInventory.activeCore);
+            if (activeIndex >= 0)
+            {
+                MoveCoreToCenter(activeIndex);
+            }
+        }
+    }
+
+    public void ClearOrbits()
+    {
+        foreach (GameObject core in orbitingCores)
+        {
+            if (core != null)
+                Destroy(core);
+        }
+        orbitingCores.Clear();
+        coreTransforms.Clear();
+        coreAngles.Clear();
+        coreDataList.Clear();
+        isMovingToCenter.Clear();
+        isMovingToOrbit.Clear();
+        transitionProgress.Clear();
+        transitionStartPos.Clear();
+        transitionTargetPos.Clear();
+        transitionStartScale.Clear();
+        transitionTargetScale.Clear();
+    }
+
+    void CreateOrbitingCore(CoreData coreData, int index)
+    {
+        if (coreData.worldModel == null)
+        {
+            Debug.LogWarning($"У ядра {coreData.coreName} нет модели для отображения!");
+            return;
+        }
+
+        GameObject coreInstance = Instantiate(coreData.worldModel, transform);
+        coreInstance.name = $"OrbitingCore_{coreData.coreName}";
+
+        // Применяем настройки размера из CoreData
+        ApplyCoreScaling(coreInstance, coreData, index);
+
+        orbitingCores.Add(coreInstance);
+        coreTransforms.Add(coreInstance.transform);
+        coreDataList.Add(coreData);
+
+        // Инициализируем списки переходов
+        isMovingToCenter.Add(false);
+        isMovingToOrbit.Add(false);
+        transitionProgress.Add(0f);
+        transitionStartPos.Add(Vector3.zero);
+        transitionTargetPos.Add(Vector3.zero);
+        transitionStartScale.Add(Vector3.one);
+        transitionTargetScale.Add(Vector3.one);
+
+        // Равномерно распределяем ядра по орбите
+        float angle = (360f / coreInventory.allCores.Count) * index;
+        coreAngles.Add(angle);
+
+        // Начальная позиция
+        UpdateCorePosition(index);
+    }
+
+    void ApplyCoreScaling(GameObject coreInstance, CoreData coreData, int index)
+    {
+        float baseScale = coreData.orbitScale * sizeReductionMultiplier;
+        float finalScale = baseScale * globalCoreScale;
+
+        if (scaleWithMass)
+        {
+            float massFactor = 0.8f + (coreData.massMultiplier * 0.4f);
+            finalScale *= massFactor;
+        }
+
+        finalScale = Mathf.Max(finalScale, 0.025f * sizeReductionMultiplier);
+        coreInstance.transform.localScale = Vector3.one * finalScale;
+
+        Collider2D collider = coreInstance.GetComponent<Collider2D>();
+        if (collider != null && collider is CircleCollider2D circleCollider)
+        {
+            circleCollider.radius *= finalScale;
+        }
+    }
+
+    void UpdateOrbits()
+    {
+        if (coreTransforms.Count == 0) return;
+
+        float direction = clockwise ? 1f : -1f;
+        float angleStep = rotationSpeed * Time.deltaTime * direction;
+
+        for (int i = 0; i < coreAngles.Count; i++)
+        {
+            // Не обновляем угол для ядер, которые движутся к центру или от центра
+            if (isMovingToCenter[i] || isMovingToOrbit[i]) continue;
+
+            // Не обновляем угол для активного ядра (оно в центре)
+            if (coreDataList[i] == coreInventory.activeCore) continue;
+
+            coreAngles[i] += angleStep;
+            if (coreAngles[i] >= 360f) coreAngles[i] -= 360f;
+            if (coreAngles[i] < 0f) coreAngles[i] += 360f;
+
+            UpdateCorePosition(i);
+        }
+    }
+
+    void UpdateCoreTransitions()
+    {
+        for (int i = 0; i < coreTransforms.Count; i++)
+        {
+            if (isMovingToCenter[i])
+            {
+                transitionProgress[i] += Time.deltaTime * centerTransitionSpeed;
+                float t = Mathf.Clamp01(transitionProgress[i]);
+
+                // Плавное перемещение к центру
+                coreTransforms[i].localPosition = Vector3.Lerp(
+                    transitionStartPos[i],
+                    transitionTargetPos[i],
+                    t
+                );
+
+                // Плавное изменение масштаба
+                coreTransforms[i].localScale = Vector3.Lerp(
+                    transitionStartScale[i],
+                    transitionTargetScale[i],
+                    t
+                );
+
+                // Если достигли центра
+                if (t >= 1f)
+                {
+                    isMovingToCenter[i] = false;
+                    transitionProgress[i] = 0f;
+                    coreTransforms[i].localPosition = Vector3.zero;
+                }
+            }
+            else if (isMovingToOrbit[i])
+            {
+                transitionProgress[i] += Time.deltaTime * centerTransitionSpeed;
+                float t = Mathf.Clamp01(transitionProgress[i]);
+
+                // Плавное перемещение на орбиту
+                coreTransforms[i].localPosition = Vector3.Lerp(
+                    transitionStartPos[i],
+                    transitionTargetPos[i],
+                    t
+                );
+
+                // Плавное изменение масштаба
+                coreTransforms[i].localScale = Vector3.Lerp(
+                    transitionStartScale[i],
+                    transitionTargetScale[i],
+                    t
+                );
+
+                // Если достигли орбиты
+                if (t >= 1f)
+                {
+                    isMovingToOrbit[i] = false;
+                    transitionProgress[i] = 0f;
+                    UpdateCorePosition(i);
+                }
+            }
+        }
+    }
+
+    void UpdateCorePosition(int index)
+    {
+        if (index >= coreTransforms.Count) return;
+
+        // Не обновляем позицию для ядер в переходе
+        if (isMovingToCenter[index] || isMovingToOrbit[index]) return;
+
+        // Активное ядро всегда в центре
+        if (coreDataList[index] == coreInventory.activeCore)
+        {
+            coreTransforms[index].localPosition = Vector3.zero;
+            return;
+        }
+
+        CoreData coreData = coreDataList[index];
+        float radius = baseOrbitRadius * coreData.orbitRadiusMultiplier;
+
+        float rad = coreAngles[index] * Mathf.Deg2Rad;
+        Vector3 position = new Vector3(
+            Mathf.Cos(rad) * radius,
+            Mathf.Sin(rad) * radius,
+            0f
+        );
+
+        coreTransforms[index].localPosition = position;
+
+        // Обновляем масштаб (активное ядро больше)
+        bool isActive = coreData == coreInventory.activeCore;
+        coreTransforms[index].localScale = Vector3.one * GetCoreScale(coreData, isActive);
+    }
+
+    float GetCoreScale(CoreData coreData, bool isActive)
+    {
+        float baseScale = coreData.orbitScale * sizeReductionMultiplier * globalCoreScale;
+
+        if (scaleWithMass)
+        {
+            float massFactor = 0.8f + (coreData.massMultiplier * 0.4f);
+            baseScale *= massFactor;
+        }
+
+        // Увеличиваем масштаб активного ядра
+        if (isActive)
+        {
+            baseScale *= centerScaleMultiplier;
+        }
+
+        baseScale = Mathf.Max(baseScale, 0.025f * sizeReductionMultiplier);
+        return baseScale;
+    }
+
+    public void MoveCoreToCenter(int index)
+    {
+        if (index < 0 || index >= coreTransforms.Count) return;
+
+        // Запоминаем предыдущее активное ядро
+        previousActiveCore = coreInventory.activeCore;
+
+        // Останавливаем все переходы для этого ядра
+        isMovingToCenter[index] = false;
+        isMovingToOrbit[index] = false;
+        transitionProgress[index] = 0f;
+
+        // Настраиваем переход к центру
+        isMovingToCenter[index] = true;
+        transitionStartPos[index] = coreTransforms[index].localPosition;
+        transitionTargetPos[index] = Vector3.zero;
+        transitionStartScale[index] = coreTransforms[index].localScale;
+        transitionTargetScale[index] = Vector3.one * GetCoreScale(coreDataList[index], true);
+
+        // Если было предыдущее активное ядро, перемещаем его на орбиту
+        if (previousActiveCore != null && previousActiveCore != coreDataList[index])
+        {
+            int previousIndex = coreDataList.IndexOf(previousActiveCore);
+            if (previousIndex >= 0)
+            {
+                MoveCoreToOrbit(previousIndex);
+            }
+        }
+
+        Debug.Log($"Ядро {coreDataList[index].coreName} перемещается в центр");
+    }
+
+    public void MoveCoreToOrbit(int index)
+    {
+        if (index < 0 || index >= coreTransforms.Count) return;
+
+        // Останавливаем все переходы для этого ядра
+        isMovingToCenter[index] = false;
+        isMovingToOrbit[index] = false;
+        transitionProgress[index] = 0f;
+
+        // Вычисляем целевую позицию на орбите
+        CoreData coreData = coreDataList[index];
+        float radius = baseOrbitRadius * coreData.orbitRadiusMultiplier;
+        float targetAngle = coreAngles[index];
+        Vector3 targetPosition = new Vector3(
+            Mathf.Cos(targetAngle * Mathf.Deg2Rad) * radius,
+            Mathf.Sin(targetAngle * Mathf.Deg2Rad) * radius,
+            0f
+        );
+
+        // Настраиваем переход на орбиту
+        isMovingToOrbit[index] = true;
+        transitionStartPos[index] = coreTransforms[index].localPosition;
+        transitionTargetPos[index] = targetPosition;
+        transitionStartScale[index] = coreTransforms[index].localScale;
+        transitionTargetScale[index] = Vector3.one * GetCoreScale(coreData, false);
+
+        Debug.Log($"Ядро {coreData.coreName} перемещается на орбиту");
+    }
+
+    public void OnActiveCoreChanged(CoreData newActiveCore)
+    {
+        if (newActiveCore == null)
+        {
+            // Если активное ядро сброшено, перемещаем все ядра на орбиты
+            for (int i = 0; i < coreDataList.Count; i++)
+            {
+                MoveCoreToOrbit(i);
+            }
+            return;
+        }
+
+        int newActiveIndex = coreDataList.IndexOf(newActiveCore);
+        if (newActiveIndex >= 0)
+        {
+            MoveCoreToCenter(newActiveIndex);
+        }
+    }
+
+    public void AddCoreToOrbit(CoreData newCore)
+    {
+        int newIndex = coreInventory.allCores.Count - 1;
+        CreateOrbitingCore(newCore, newIndex);
+        RedistributeAngles();
+    }
+
+    void RedistributeAngles()
+    {
+        for (int i = 0; i < coreAngles.Count; i++)
+        {
+            coreAngles[i] = (360f / coreInventory.allCores.Count) * i;
+        }
+    }
+
+    public void RemoveCoreFromOrbit(CoreData coreToRemove)
+    {
+        int indexToRemove = coreDataList.IndexOf(coreToRemove);
+        if (indexToRemove >= 0)
+        {
+            if (orbitingCores[indexToRemove] != null)
+                Destroy(orbitingCores[indexToRemove]);
+
+            orbitingCores.RemoveAt(indexToRemove);
+            coreTransforms.RemoveAt(indexToRemove);
+            coreAngles.RemoveAt(indexToRemove);
+            coreDataList.RemoveAt(indexToRemove);
+            isMovingToCenter.RemoveAt(indexToRemove);
+            isMovingToOrbit.RemoveAt(indexToRemove);
+            transitionProgress.RemoveAt(indexToRemove);
+            transitionStartPos.RemoveAt(indexToRemove);
+            transitionTargetPos.RemoveAt(indexToRemove);
+            transitionStartScale.RemoveAt(indexToRemove);
+            transitionTargetScale.RemoveAt(indexToRemove);
+
+            RedistributeAngles();
+        }
+    }
+
+    public void UpdateCoreScaling()
+    {
+        for (int i = 0; i < orbitingCores.Count; i++)
+        {
+            if (orbitingCores[i] != null)
+            {
+                ApplyCoreScaling(orbitingCores[i], coreDataList[i], i);
+                UpdateCorePosition(i);
+            }
+        }
+    }
+
+    public void SetGlobalCoreScale(float newScale)
+    {
+        globalCoreScale = Mathf.Clamp(newScale, 0.025f, 3.0f);
+        UpdateCoreScaling();
+    }
+
+    public void SetSizeReductionMultiplier(float newMultiplier)
+    {
+        sizeReductionMultiplier = Mathf.Clamp(newMultiplier, 0.01f, 1.0f);
+        UpdateCoreScaling();
+    }
+
+    public void SetBaseOrbitRadius(float newRadius)
+    {
+        baseOrbitRadius = Mathf.Clamp(newRadius, 0.5f, 5.0f);
+        UpdateCoreScaling();
+    }
+
+    public void SetRotationSpeed(float newSpeed)
+    {
+        rotationSpeed = newSpeed;
+    }
+
+    public void SetCenterTransitionSpeed(float newSpeed)
+    {
+        centerTransitionSpeed = Mathf.Clamp(newSpeed, 1f, 20f);
+    }
+
+    public string GetOrbitInfo()
+    {
+        int activeCores = 0;
+        foreach (var core in coreDataList)
+        {
+            if (core == coreInventory.activeCore) activeCores++;
+        }
+
+        return $"Ядер: {orbitingCores.Count}, Активных: {activeCores}, Переходов: {isMovingToCenter.Count}";
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        if (coreInventory == null || coreInventory.allCores.Count == 0) return;
+
+        Gizmos.color = Color.blue;
+        Gizmos.DrawWireSphere(transform.position, baseOrbitRadius * 0.5f);
+        Gizmos.DrawWireSphere(transform.position, baseOrbitRadius);
+        Gizmos.DrawWireSphere(transform.position, baseOrbitRadius * 1.5f);
+
+        // Центр - красный круг
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, 0.2f);
+
+        Gizmos.color = Color.green;
+        for (int i = 0; i < coreInventory.allCores.Count; i++)
+        {
+            CoreData core = coreInventory.allCores[i];
+            float radius = baseOrbitRadius * core.orbitRadiusMultiplier;
+            float angle = (360f / coreInventory.allCores.Count) * i;
+            float rad = angle * Mathf.Deg2Rad;
+
+            Vector3 position = transform.position + new Vector3(
+                Mathf.Cos(rad) * radius,
+                Mathf.Sin(rad) * radius,
+                0f
+            );
+
+            float displaySize = 0.1f * core.orbitScale * globalCoreScale * sizeReductionMultiplier;
+            Gizmos.DrawWireSphere(position, displaySize);
+
+            // Линия к центру
+            Gizmos.DrawLine(transform.position, position);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreSlotUI.cs
+================================================================================
+
+using UnityEngine;
+using UnityEngine.UI;
+
+public class CoreSlotUI : MonoBehaviour
+{
+    [Header("UI элементы")]
+    public Image coreIcon;
+    public Text coreName;
+    public Image rarityIndicator;
+    public GameObject selectedIndicator;
+    public Button slotButton;
+
+    [Header("÷вета редкости")]
+    public Color commonColor = Color.white;
+    public Color specialColor = Color.yellow;
+
+    public CoreData assignedCore { get; private set; }
+    private CoreUIManager uiManager;
+    private bool isQuickSlot = false;
+
+    public void Initialize(CoreData core, CoreUIManager manager)
+    {
+        assignedCore = core;
+        uiManager = manager;
+
+        UpdateUI();
+
+        if (slotButton != null)
+        {
+            slotButton.onClick.AddListener(OnSlotClicked);
+        }
+    }
+
+    public void AssignCore(CoreData core)
+    {
+        assignedCore = core;
+        UpdateUI();
+    }
+
+    void UpdateUI()
+    {
+        if (assignedCore != null)
+        {
+            // ”станавливаем иконку
+            if (coreIcon != null)
+            {
+                if (assignedCore.inventoryIcon != null)
+                {
+                    coreIcon.sprite = assignedCore.inventoryIcon;
+                    coreIcon.color = Color.white;
+                }
+                else
+                {
+                    coreIcon.sprite = null;
+                    coreIcon.color = assignedCore.coreColor;
+                }
+            }
+
+            // ”станавливаем название (только дл€ обычных слотов)
+            if (coreName != null && !isQuickSlot)
+            {
+                coreName.text = assignedCore.coreName;
+            }
+
+            // ”станавливаем индикатор редкости
+            if (rarityIndicator != null && !isQuickSlot)
+            {
+                rarityIndicator.color = assignedCore.rarity == CoreRarity.Common ? commonColor : specialColor;
+            }
+        }
+        else
+        {
+            // ќчищаем слот
+            if (coreIcon != null)
+            {
+                coreIcon.sprite = null;
+                coreIcon.color = Color.gray;
+            }
+
+            if (coreName != null && !isQuickSlot)
+            {
+                coreName.text = "ѕусто";
+            }
+
+            if (rarityIndicator != null && !isQuickSlot)
+            {
+                rarityIndicator.color = Color.gray;
+            }
+        }
+    }
+
+    public void SetSelected(bool selected)
+    {
+        if (selectedIndicator != null)
+        {
+            selectedIndicator.SetActive(selected);
+        }
+    }
+
+    public void SetAsQuickSlot(bool isQuick)
+    {
+        isQuickSlot = isQuick;
+    }
+
+    void OnSlotClicked()
+    {
+        if (assignedCore != null)
+        {
+            if (isQuickSlot)
+            {
+                // ƒл€ быстрого слота - переключаемс€ на него
+                int slotIndex = FindQuickSlotIndex();
+                if (slotIndex >= 0)
+                {
+                    uiManager.OnQuickSlotSelected(slotIndex);
+                }
+            }
+            else
+            {
+                // ƒл€ обычного слота - выбираем €дро
+                uiManager.OnCoreSelected(assignedCore);
+            }
+        }
+        else if (isQuickSlot)
+        {
+            // ≈сли быстрый слот пустой - открываем выбор €дер
+            uiManager.ToggleCoreSelection();
+        }
+    }
+
+    private int FindQuickSlotIndex()
+    {
+        if (uiManager == null || uiManager.quickSlotsUI == null) return -1;
+
+        for (int i = 0; i < uiManager.quickSlotsUI.Length; i++)
+        {
+            if (uiManager.quickSlotsUI[i] == this)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\CoreUIManager.cs
+================================================================================
+
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+
+public class CoreUIManager : MonoBehaviour
+{
+    [Header("Настройки UI")]
+    public int quickSlotCount = 3;
+    public Sprite defaultCoreIcon;
+    public Color commonCoreColor = Color.white;
+    public Color specialCoreColor = Color.yellow;
+
+    [Header("Масштабирование")]
+    [Range(0.1f, 2f)]
+    public float uiScale = 1f;
+    public float referenceResolutionHeight = 1080f;
+
+    [Header("Автоматические ссылки")]
+    public GameObject coreSelectionPanel;
+    public Transform coresGrid;
+    public CoreSlotUI[] quickSlotsUI;
+
+    private CoreInventory coreInventory;
+    private bool isUIOpen = false;
+    private Canvas canvas;
+    private GameObject quickSlotsPanel;
+
+    // Префабы создаваемые в runtime
+    private GameObject coreSlotPrefab;
+    private GameObject quickSlotPrefab;
+    private Font defaultFont;
+
+    // Адаптивные размеры
+    private float scaledPanelWidth;
+    private float scaledPanelHeight;
+    private float scaledSlotSize;
+    private float scaledQuickSlotWidth;
+    private float scaledQuickSlotHeight;
+
+    void Start()
+    {
+        coreInventory = FindObjectOfType<CoreInventory>();
+
+        if (coreInventory != null)
+        {
+            coreInventory.OnCoreChanged += UpdateActiveCoreUI;
+            coreInventory.OnQuickSlotsUpdated += UpdateQuickSlotsUI;
+        }
+
+        // Рассчитываем адаптивные размеры
+        CalculateAdaptiveSizes();
+
+        // Получаем шрифт по умолчанию
+        GetDefaultFont();
+
+        CreateCanvas();
+        CreateCoreSelectionUI();
+        CreateQuickSlotsUI();
+        InitializeUI();
+
+        // Скрываем панель выбора при старте
+        if (coreSelectionPanel != null)
+            coreSelectionPanel.SetActive(false);
+    }
+
+    void CalculateAdaptiveSizes()
+    {
+        // Базовые размеры для разрешения 1080p
+        float basePanelWidth = 400f;
+        float basePanelHeight = 300f;
+        float baseSlotSize = 80f;
+        float baseQuickSlotWidth = 70f;
+        float baseQuickSlotHeight = 50f;
+
+        // Масштабируем относительно текущего разрешения
+        float screenScale = (float)Screen.height / referenceResolutionHeight;
+        float totalScale = screenScale * uiScale;
+
+        scaledPanelWidth = basePanelWidth * totalScale;
+        scaledPanelHeight = basePanelHeight * totalScale;
+        scaledSlotSize = baseSlotSize * totalScale;
+        scaledQuickSlotWidth = baseQuickSlotWidth * totalScale;
+        scaledQuickSlotHeight = baseQuickSlotHeight * totalScale;
+
+        Debug.Log($"Адаптивные размеры UI: экран={Screen.height}px, масштаб={totalScale:F2}");
+    }
+
+    void GetDefaultFont()
+    {
+        // Пытаемся найти любой доступный шрифт
+        Font[] fonts = Resources.FindObjectsOfTypeAll<Font>();
+        if (fonts.Length > 0)
+        {
+            defaultFont = fonts[0];
+        }
+        else
+        {
+            // Создаем fallback - используем шрифт из системного Text компонента
+            GameObject tempText = new GameObject("TempText");
+            Text textComponent = tempText.AddComponent<Text>();
+            defaultFont = textComponent.font;
+            Destroy(tempText);
+        }
+    }
+
+    void CreateCanvas()
+    {
+        // Ищем существующий Canvas или создаем новый
+        canvas = FindObjectOfType<Canvas>();
+        if (canvas == null)
+        {
+            GameObject canvasObject = new GameObject("CoreSystemCanvas");
+            canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+            // Добавляем CanvasScaler для адаптивности
+            CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+
+            canvasObject.AddComponent<GraphicRaycaster>();
+        }
+    }
+
+    void CreateCoreSelectionUI()
+    {
+        // Создаем панель выбора ядер
+        coreSelectionPanel = new GameObject("CoreSelectionPanel");
+        coreSelectionPanel.transform.SetParent(canvas.transform);
+
+        // Добавляем компоненты для панели
+        Image panelImage = coreSelectionPanel.AddComponent<Image>();
+        panelImage.color = new Color(0.1f, 0.1f, 0.1f, 0.95f);
+
+        // Настраиваем RectTransform с адаптивными размерами
+        RectTransform panelRect = coreSelectionPanel.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.pivot = new Vector2(0.5f, 0.5f);
+        panelRect.sizeDelta = new Vector2(scaledPanelWidth, scaledPanelHeight);
+        panelRect.anchoredPosition = Vector2.zero;
+
+        // Добавляем Vertical Layout Group
+        VerticalLayoutGroup verticalLayout = coreSelectionPanel.AddComponent<VerticalLayoutGroup>();
+        verticalLayout.padding = new RectOffset(10, 10, 10, 10);
+        verticalLayout.spacing = 10;
+        verticalLayout.childAlignment = TextAnchor.UpperCenter;
+
+        // Создаем заголовок
+        CreateTitlePanel(coreSelectionPanel.transform, "ВЫБОР ЯДЕР");
+
+        // Создаем сетку для ядер
+        GameObject gridObject = new GameObject("CoresGrid");
+        gridObject.transform.SetParent(coreSelectionPanel.transform);
+        coresGrid = gridObject.transform;
+
+        // Настраиваем Grid Layout Group для сетки с адаптивными размерами
+        GridLayoutGroup gridLayout = gridObject.AddComponent<GridLayoutGroup>();
+        gridLayout.cellSize = new Vector2(scaledSlotSize, scaledSlotSize);
+        gridLayout.spacing = new Vector2(10, 10);
+        gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        gridLayout.constraintCount = 3;
+
+        // Настраиваем размер сетки
+        RectTransform gridRect = gridObject.GetComponent<RectTransform>();
+        gridRect.sizeDelta = new Vector2(scaledPanelWidth - 40, scaledPanelHeight - 80);
+
+        // Создаем префаб слота ядра
+        CreateCoreSlotPrefab();
+    }
+
+    void CreateTitlePanel(Transform parent, string titleText)
+    {
+        GameObject titlePanel = new GameObject("TitlePanel");
+        titlePanel.transform.SetParent(parent);
+
+        // Настраиваем layout
+        HorizontalLayoutGroup layout = titlePanel.AddComponent<HorizontalLayoutGroup>();
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+
+        RectTransform titleRect = titlePanel.GetComponent<RectTransform>();
+        titleRect.sizeDelta = new Vector2(scaledPanelWidth - 20, 30 * uiScale);
+
+        // Создаем текст заголовка
+        GameObject titleObject = new GameObject("TitleText");
+        titleObject.transform.SetParent(titlePanel.transform);
+
+        Text text = titleObject.AddComponent<Text>();
+        text.text = titleText;
+
+        if (defaultFont != null)
+            text.font = defaultFont;
+
+        text.color = Color.white;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.fontSize = Mathf.RoundToInt(18 * uiScale);
+        text.fontStyle = FontStyle.Bold;
+
+        RectTransform textRect = titleObject.GetComponent<RectTransform>();
+        textRect.sizeDelta = new Vector2(200 * uiScale, 25 * uiScale);
+    }
+
+    void CreateQuickSlotsUI()
+    {
+        // Создаем панель быстрых слотов
+        quickSlotsPanel = new GameObject("QuickSlotsPanel");
+        quickSlotsPanel.transform.SetParent(canvas.transform);
+
+        // Настраиваем панель
+        Image panelImage = quickSlotsPanel.AddComponent<Image>();
+        panelImage.color = new Color(0f, 0f, 0f, 0.7f);
+
+        RectTransform panelRect = quickSlotsPanel.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0.5f, 0f);
+        panelRect.anchorMax = new Vector2(0.5f, 0f);
+        panelRect.pivot = new Vector2(0.5f, 0f);
+        panelRect.sizeDelta = new Vector2(scaledQuickSlotWidth * quickSlotCount + 40, scaledQuickSlotHeight + 20);
+        panelRect.anchoredPosition = new Vector2(0, 20 * uiScale);
+
+        // Добавляем Horizontal Layout Group
+        HorizontalLayoutGroup horizontalLayout = quickSlotsPanel.AddComponent<HorizontalLayoutGroup>();
+        horizontalLayout.padding = new RectOffset(10, 10, 5, 5);
+        horizontalLayout.spacing = 10 * uiScale;
+        horizontalLayout.childAlignment = TextAnchor.MiddleCenter;
+
+        // Создаем быстрые слоты
+        quickSlotsUI = new CoreSlotUI[quickSlotCount];
+        CreateQuickSlotPrefab();
+
+        for (int i = 0; i < quickSlotCount; i++)
+        {
+            GameObject slotObject = Instantiate(quickSlotPrefab, quickSlotsPanel.transform);
+            slotObject.name = $"QuickSlot_{i + 1}";
+
+            // Добавляем текст с номером слота
+            CreateSlotIndex(slotObject.transform, i + 1);
+
+            quickSlotsUI[i] = slotObject.GetComponent<CoreSlotUI>();
+            if (quickSlotsUI[i] != null)
+            {
+                quickSlotsUI[i].SetAsQuickSlot(true);
+            }
+        }
+    }
+
+    void CreateSlotIndex(Transform parent, int slotNumber)
+    {
+        GameObject indexObject = new GameObject("SlotIndex");
+        indexObject.transform.SetParent(parent);
+
+        Text indexText = indexObject.AddComponent<Text>();
+        indexText.text = slotNumber.ToString();
+
+        if (defaultFont != null)
+            indexText.font = defaultFont;
+
+        indexText.color = Color.white;
+        indexText.alignment = TextAnchor.UpperRight;
+        indexText.fontSize = Mathf.RoundToInt(12 * uiScale);
+        indexText.fontStyle = FontStyle.Bold;
+
+        RectTransform textRect = indexObject.GetComponent<RectTransform>();
+        textRect.anchorMin = new Vector2(1, 1);
+        textRect.anchorMax = new Vector2(1, 1);
+        textRect.pivot = new Vector2(1, 1);
+        textRect.anchoredPosition = new Vector2(-2 * uiScale, -2 * uiScale);
+        textRect.sizeDelta = new Vector2(15 * uiScale, 15 * uiScale);
+    }
+
+    void CreateCoreSlotPrefab()
+    {
+        coreSlotPrefab = new GameObject("CoreSlotPrefab");
+        coreSlotPrefab.SetActive(false);
+
+        // Настраиваем RectTransform с адаптивным размером
+        RectTransform rect = coreSlotPrefab.AddComponent<RectTransform>();
+        rect.sizeDelta = new Vector2(scaledSlotSize, scaledSlotSize);
+
+        // Добавляем фон
+        Image background = coreSlotPrefab.AddComponent<Image>();
+        background.color = new Color(0.3f, 0.3f, 0.3f, 1f);
+
+        // Добавляем иконку
+        GameObject iconObject = new GameObject("Icon");
+        iconObject.transform.SetParent(coreSlotPrefab.transform);
+        Image iconImage = iconObject.AddComponent<Image>();
+        iconImage.preserveAspect = true;
+
+        RectTransform iconRect = iconObject.GetComponent<RectTransform>();
+        iconRect.anchorMin = new Vector2(0.1f, 0.1f);
+        iconRect.anchorMax = new Vector2(0.9f, 0.9f);
+        iconRect.offsetMin = Vector2.zero;
+        iconRect.offsetMax = Vector2.zero;
+
+        // Добавляем текст названия
+        GameObject nameObject = new GameObject("Name");
+        nameObject.transform.SetParent(coreSlotPrefab.transform);
+        Text nameText = nameObject.AddComponent<Text>();
+
+        if (defaultFont != null)
+            nameText.font = defaultFont;
+
+        nameText.color = Color.white;
+        nameText.alignment = TextAnchor.LowerCenter;
+        nameText.fontSize = Mathf.RoundToInt(8 * uiScale);
+        nameText.verticalOverflow = VerticalWrapMode.Overflow;
+
+        RectTransform nameRect = nameObject.GetComponent<RectTransform>();
+        nameRect.anchorMin = new Vector2(0, 0);
+        nameRect.anchorMax = new Vector2(1, 0.3f);
+        nameRect.offsetMin = new Vector2(2 * uiScale, 0);
+        nameRect.offsetMax = new Vector2(-2 * uiScale, 0);
+
+        // Добавляем индикатор редкости
+        GameObject rarityObject = new GameObject("RarityIndicator");
+        rarityObject.transform.SetParent(coreSlotPrefab.transform);
+        Image rarityImage = rarityObject.AddComponent<Image>();
+        rarityImage.color = commonCoreColor;
+
+        RectTransform rarityRect = rarityObject.GetComponent<RectTransform>();
+        rarityRect.anchorMin = new Vector2(0, 0.85f);
+        rarityRect.anchorMax = new Vector2(1, 0.9f);
+        rarityRect.offsetMin = new Vector2(5 * uiScale, 0);
+        rarityRect.offsetMax = new Vector2(-5 * uiScale, 0);
+
+        // Добавляем индикатор выделения
+        GameObject selectedObject = new GameObject("SelectedIndicator");
+        selectedObject.transform.SetParent(coreSlotPrefab.transform);
+        Image selectedImage = selectedObject.AddComponent<Image>();
+        selectedImage.color = Color.green;
+        selectedObject.SetActive(false);
+
+        RectTransform selectedRect = selectedObject.GetComponent<RectTransform>();
+        selectedRect.anchorMin = Vector2.zero;
+        selectedRect.anchorMax = Vector2.one;
+        selectedRect.offsetMin = Vector2.zero;
+        selectedRect.offsetMax = Vector2.zero;
+
+        // Добавляем кнопку
+        Button button = coreSlotPrefab.AddComponent<Button>();
+        button.targetGraphic = background;
+
+        // Настраиваем цвета кнопки
+        ColorBlock colors = button.colors;
+        colors.normalColor = new Color(0.3f, 0.3f, 0.3f, 1f);
+        colors.highlightedColor = new Color(0.5f, 0.5f, 0.5f, 1f);
+        colors.pressedColor = new Color(0.2f, 0.2f, 0.2f, 1f);
+        button.colors = colors;
+
+        // Добавляем компонент CoreSlotUI
+        CoreSlotUI slotUI = coreSlotPrefab.AddComponent<CoreSlotUI>();
+        slotUI.coreIcon = iconImage;
+        slotUI.coreName = nameText;
+        slotUI.rarityIndicator = rarityImage;
+        slotUI.selectedIndicator = selectedObject;
+        slotUI.slotButton = button;
+    }
+
+    void CreateQuickSlotPrefab()
+    {
+        quickSlotPrefab = new GameObject("QuickSlotPrefab");
+        quickSlotPrefab.SetActive(false);
+
+        // Настраиваем RectTransform с адаптивным размером
+        RectTransform rect = quickSlotPrefab.AddComponent<RectTransform>();
+        rect.sizeDelta = new Vector2(scaledQuickSlotWidth, scaledQuickSlotHeight);
+
+        // Добавляем фон
+        Image background = quickSlotPrefab.AddComponent<Image>();
+        background.color = new Color(0.2f, 0.2f, 0.2f, 1f);
+
+        // Добавляем иконку
+        GameObject iconObject = new GameObject("Icon");
+        iconObject.transform.SetParent(quickSlotPrefab.transform);
+        Image iconImage = iconObject.AddComponent<Image>();
+        iconImage.preserveAspect = true;
+
+        RectTransform iconRect = iconObject.GetComponent<RectTransform>();
+        iconRect.anchorMin = new Vector2(0.2f, 0.2f);
+        iconRect.anchorMax = new Vector2(0.8f, 0.8f);
+        iconRect.offsetMin = Vector2.zero;
+        iconRect.offsetMax = Vector2.zero;
+
+        // Добавляем индикатор выделения
+        GameObject selectedObject = new GameObject("SelectedIndicator");
+        selectedObject.transform.SetParent(quickSlotPrefab.transform);
+        Image selectedImage = selectedObject.AddComponent<Image>();
+        selectedImage.color = Color.yellow;
+        selectedObject.SetActive(false);
+
+        RectTransform selectedRect = selectedObject.GetComponent<RectTransform>();
+        selectedRect.anchorMin = Vector2.zero;
+        selectedRect.anchorMax = Vector2.one;
+        selectedRect.offsetMin = Vector2.zero;
+        selectedRect.offsetMax = Vector2.zero;
+
+        // Добавляем кнопку
+        Button button = quickSlotPrefab.AddComponent<Button>();
+        button.targetGraphic = background;
+
+        // Добавляем компонент CoreSlotUI
+        CoreSlotUI slotUI = quickSlotPrefab.AddComponent<CoreSlotUI>();
+        slotUI.coreIcon = iconImage;
+        slotUI.selectedIndicator = selectedObject;
+        slotUI.slotButton = button;
+    }
+
+    void InitializeUI()
+    {
+        if (coresGrid == null || coreInventory == null) return;
+
+        // Очищаем сетку
+        foreach (Transform child in coresGrid)
+        {
+            Destroy(child.gameObject);
+        }
+
+        // Создаем слоты для всех ядер
+        foreach (CoreData core in coreInventory.allCores)
+        {
+            GameObject slotObject = Instantiate(coreSlotPrefab, coresGrid);
+            slotObject.SetActive(true);
+            slotObject.name = $"CoreSlot_{core.coreName}";
+
+            CoreSlotUI slotUI = slotObject.GetComponent<CoreSlotUI>();
+            if (slotUI != null)
+            {
+                slotUI.Initialize(core, this);
+            }
+        }
+
+        UpdateQuickSlotsUI();
+    }
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            ToggleCoreSelection();
+        }
+    }
+
+    public void ToggleCoreSelection()
+    {
+        isUIOpen = !isUIOpen;
+
+        if (coreSelectionPanel != null)
+        {
+            coreSelectionPanel.SetActive(isUIOpen);
+
+            // Обновляем UI при открытии
+            if (isUIOpen)
+            {
+                UpdateQuickSlotsUI();
+            }
+        }
+    }
+
+    void UpdateActiveCoreUI(CoreData activeCore)
+    {
+        if (quickSlotsUI == null) return;
+
+        for (int i = 0; i < quickSlotsUI.Length; i++)
+        {
+            if (quickSlotsUI[i] != null)
+            {
+                bool isSelected = (coreInventory != null && i == coreInventory.activeQuickSlotIndex);
+                quickSlotsUI[i].SetSelected(isSelected);
+            }
+        }
+    }
+
+    void UpdateQuickSlotsUI()
+    {
+        if (coreInventory == null || quickSlotsUI == null) return;
+
+        for (int i = 0; i < quickSlotsUI.Length; i++)
+        {
+            if (quickSlotsUI[i] != null)
+            {
+                CoreData slotCore = coreInventory.quickSlots[i];
+                quickSlotsUI[i].AssignCore(slotCore);
+
+                bool isSelected = (i == coreInventory.activeQuickSlotIndex);
+                quickSlotsUI[i].SetSelected(isSelected);
+            }
+        }
+    }
+
+    public void OnCoreSelected(CoreData core)
+    {
+        if (coreInventory == null) return;
+
+        // Находим слот для назначения (первый пустой или текущий активный)
+        for (int i = 0; i < coreInventory.quickSlotCount; i++)
+        {
+            if (coreInventory.quickSlots[i] == null || i == coreInventory.activeQuickSlotIndex)
+            {
+                coreInventory.AssignCoreToQuickSlot(core, i);
+                coreInventory.SwitchToQuickSlot(i);
+                break;
+            }
+        }
+
+        // Закрываем панель выбора после выбора
+        ToggleCoreSelection();
+    }
+
+    public void OnQuickSlotSelected(int slotIndex)
+    {
+        if (coreInventory != null)
+        {
+            coreInventory.SwitchToQuickSlot(slotIndex);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\DynamicLayeredSlimeController.cs
+================================================================================
+
+using UnityEngine;
+using System.Collections.Generic;
+using System.Collections;
+
+public class SlimeCharacterController : MonoBehaviour
+{
+    [Header("=== КОНФИГУРАЦИЯ СЛОЕВ ===")]
+    public int coreNodesCount = 6;
+    public int middleNodesCount = 10;
+    public int surfaceNodesCount = 14;
+    public float[] layerDistances = new float[] { 0.5f, 0.9f, 1.3f };
+
+    [Header("=== СВОЙСТВА СЛОЕВ ===")]
+    public float coreStiffness = 1200f;
+    public float middleStiffness = 400f;
+    public float surfaceStiffness = 60f;
+    public float coreDrag = 3f;
+    public float surfaceDrag = 0.5f;
+
+    [Header("=== НАСТРОЙКИ ДВИЖЕНИЯ ===")]
+    public float moveSpeed = 8f;
+    public float airMoveSpeed = 5f; // Скорость в воздухе
+    public float airControlForce = 15f; // Сила контроля в воздухе
+    public float slopeDetectionRange = 1f; // Дистанция обнаружения наклона
+    public float jumpInitialSpeed = 35f;
+    public float jumpDecayRate = 0.85f;
+    public float gravityMultiplier = 4.5f;
+    public float fastFallMultiplier = 2f;
+    public float obstacleDetectionRange = 0.7f;
+    public float corePriorityForce = 15f;
+    public float groundFriction = 10f;
+    [Range(0f, 1f)]
+    public float jumpGroundPercentage = 0.2f;
+
+    [Header("=== СИСТЕМА ПРИСЕДАНИЯ ===")]
+    public float crouchForce = 25f;
+    public float crouchHeightReduction = 0.5f;
+    public float crouchSpeedMultiplier = 0.7f;
+    public float crouchGroundPullForce = 15f;
+
+    [Header("=== ЖИДКОЕ ПОВЕДЕНИЕ ===")]
+    public float surfaceOscillationForce = 2f;
+    public float surfaceFluidity = 0.3f;
+    public float maxSurfaceWobble = 0.4f;
+
+    [Header("=== ПРЕДОТВРАЩЕНИЕ СТОЛКНОВЕНИЙ ===")]
+    public float nodeRepelForce = 50f;
+    public float unstuckForce = 100f;
+
+    [Header("=== РАДИУСЫ АНТИ-ЗАСТРЕВАНИЯ ===")]
+    public float unstuckRadius = 2.5f;
+    public float autoGatherRadius = 2.0f;
+    public float inputStuckRadius = 1.5f;
+    [Range(0f, 1f)]
+    public float autoGatherThreshold = 0.3f;
+    public int maxSimultaneousGathers = 3;
+
+    public LayerMask obstacleLayers = 1;
+
+    [Header("=== СЛОИ ДЛЯ ПРЫЖКА ===")]
+    public LayerMask jumpGroundLayers = 1; // Слои земли, которые учитываются для прыжка
+
+    [Header("=== НОВАЯ СИСТЕМА ЛАЗАНИЯ (КОЛЛАЙДЕР) ===")]
+    public float wallClimbSpeed = 6f;
+    public float wallStickForce = 25f;
+    public float wallJumpForce = 30f;
+    public float wallDetectionDistance = 0.8f;
+    public float maxWallAngle = 80f;
+    public float wallSlideGravity = 2f;
+    public float wallClimbGravity = 1f;
+    public float wallAttractionForce = 15f;
+
+    [Header("=== СИСТЕМА ФИКСАЦИИ УЗЛОВ ===")]
+    public float coreNodeReturnForce = 100f;
+    public float coreNodeMaxDistance = 1.5f;
+    public float middleNodeReturnForce = 70f;
+    public float middleNodeMaxDistance = 2f;
+
+    [Header("=== ОГРАНИЧЕНИЯ УЗЛОВ ===")]
+    public float maxSurfaceNodeDistance = 2f;
+    public float maxNodeVelocity = 15f;
+
+    [Header("=== ДИНАМИЧЕСКИЕ СВОЙСТВА ===")]
+    public float currentMass = 1f;
+    public float currentSize = 1f;
+    public Color slimeColor = new Color(0.2f, 0.8f, 0.3f, 0.9f);
+
+    [Header("=== СИСТЕМА ЯДЕР ===")]
+    public CoreInventory coreInventory;
+    public CoreOrbitController orbitController;
+
+    // Node collections
+    public List<Rigidbody2D> coreNodes { get; private set; } = new List<Rigidbody2D>();
+    public List<Rigidbody2D> middleNodes { get; private set; } = new List<Rigidbody2D>();
+    public List<Rigidbody2D> surfaceNodes { get; private set; } = new List<Rigidbody2D>();
+
+    private Rigidbody2D centerBody;
+    private CircleCollider2D centerCollider;
+    private int surfaceGroundContactCount = 0;
+    private Vector2 moveInput;
+    private List<Vector2> nodeRestPositions = new List<Vector2>();
+    private List<float> surfaceOscillationOffsets = new List<float>();
+    private float oscillationTimer = 0f;
+    private bool jumpRequested = false;
+    private bool isJumping = false;
+    private bool isHoldingS = false;
+    private bool isCrouching = false;
+    private float originalGravityScale;
+    private float originalColliderRadius;
+
+    // Jump variables
+    private float currentJumpSpeed;
+    private float jumpTimer;
+    private const float maxJumpTime = 0.5f;
+
+    // Система определения застревания по вводу
+    private float inputStuckTimer = 0f;
+    private const float INPUT_STUCK_TIME = 1.0f;
+    private Vector2 lastCenterPosition;
+
+    // Система кучкования
+    private float lastGatherCheck;
+
+    // НОВАЯ СИСТЕМА ЛАЗАНИЯ - КОЛЛАЙДЕР
+    private bool isOnWall = false;
+    private bool isWallClimbing = false;
+    private Vector2 wallNormal = Vector2.zero;
+    private Vector2 wallClimbDirection = Vector2.zero;
+    private float wallStickTimer = 0f;
+    private const float WALL_STICK_MAX_TIME = 3.0f;
+    private ContactPoint2D[] wallContacts = new ContactPoint2D[10];
+    private int wallContactCount = 0;
+
+    // Система движения по наклонным поверхностям
+    private Vector2 groundNormal = Vector2.up;
+    private float currentSlopeAngle = 0f;
+    private bool isOnSlope = false;
+    private Vector2 slopePerpendicular = Vector2.right;
+
+    void Start()
+    {
+        CreateCharacter();
+        SetupOscillation();
+        originalGravityScale = gravityMultiplier;
+        lastCenterPosition = transform.position;
+
+        // Инициализация системы ядер
+        if (coreInventory == null)
+            coreInventory = GetComponent<CoreInventory>();
+        if (orbitController == null)
+            orbitController = GetComponent<CoreOrbitController>();
+    }
+
+    void CreateCharacter()
+    {
+        CreateCenterBody();
+        CreateNodeLayers();
+        ConnectNodeLayers();
+        CalculateRestPositions();
+    }
+
+    void CreateCenterBody()
+    {
+        centerBody = GetComponent<Rigidbody2D>();
+        if (centerBody == null)
+            centerBody = gameObject.AddComponent<Rigidbody2D>();
+
+        centerBody.gravityScale = 0;
+        centerBody.linearDamping = 1.5f;
+        centerBody.angularDamping = 2f;
+        centerBody.mass = 2f * currentMass;
+        centerBody.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        centerBody.freezeRotation = true;
+
+        centerCollider = gameObject.AddComponent<CircleCollider2D>();
+        centerCollider.radius = 0.3f;
+        centerCollider.isTrigger = false;
+        originalColliderRadius = centerCollider.radius;
+    }
+
+    void CreateNodeLayers()
+    {
+        CreateNodeLayer(0, "Core", coreNodes, coreNodesCount, coreDrag, 0.05f);
+        CreateNodeLayer(1, "Middle", middleNodes, middleNodesCount, 1.2f, 0.07f);
+        CreateNodeLayer(2, "Surface", surfaceNodes, surfaceNodesCount, surfaceDrag, 0.09f);
+    }
+
+    void CreateNodeLayer(int layerIndex, string prefix, List<Rigidbody2D> nodes, int count, float drag, float colliderSize)
+    {
+        float radius = layerDistances[layerIndex];
+        for (int i = 0; i < count; i++)
+        {
+            float angle = i * (360f / count);
+            Vector2 direction = Quaternion.Euler(0, 0, angle) * Vector2.up;
+
+            Vector2 localPosition = direction * radius;
+            Vector2 position = (Vector2)transform.position + localPosition;
+
+            GameObject node = new GameObject($"{prefix}_Node_{i}");
+            node.transform.position = position;
+            node.transform.SetParent(transform);
+            node.tag = "SlimeNode";
+
+            Rigidbody2D rb = node.AddComponent<Rigidbody2D>();
+
+            rb.gravityScale = gravityMultiplier;
+            rb.linearDamping = drag;
+            rb.angularDamping = drag * 1.8f;
+            rb.mass = (0.3f + layerIndex * 0.15f) * currentMass;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            rb.freezeRotation = true;
+
+            CircleCollider2D collider = node.AddComponent<CircleCollider2D>();
+            collider.radius = colliderSize;
+
+            SlimeNodeBehavior nodeBehavior = node.AddComponent<SlimeNodeBehavior>();
+            nodeBehavior.Initialize(this, centerBody, layerIndex, maxSurfaceNodeDistance, maxNodeVelocity,
+                                  unstuckRadius, autoGatherRadius, inputStuckRadius);
+
+            nodes.Add(rb);
+        }
+    }
+
+    void SetupOscillation()
+    {
+        surfaceOscillationOffsets.Clear();
+        for (int i = 0; i < surfaceNodesCount; i++)
+        {
+            surfaceOscillationOffsets.Add(Random.Range(0f, Mathf.PI * 2f));
+        }
+    }
+
+    void CalculateRestPositions()
+    {
+        nodeRestPositions.Clear();
+
+        for (int i = 0; i < coreNodesCount; i++)
+        {
+            float angle = i * (360f / coreNodesCount);
+            Vector2 dir = Quaternion.Euler(0, 0, angle) * Vector2.up;
+            nodeRestPositions.Add(dir * layerDistances[0]);
+        }
+
+        for (int i = 0; i < middleNodesCount; i++)
+        {
+            float angle = i * (360f / middleNodesCount);
+            Vector2 dir = Quaternion.Euler(0, 0, angle) * Vector2.up;
+            nodeRestPositions.Add(dir * layerDistances[1]);
+        }
+
+        for (int i = 0; i < surfaceNodesCount; i++)
+        {
+            float angle = i * (360f / surfaceNodesCount);
+            Vector2 dir = Quaternion.Euler(0, 0, angle) * Vector2.up;
+            nodeRestPositions.Add(dir * layerDistances[2]);
+        }
+    }
+
+    void ConnectNodeLayers()
+    {
+        ConnectLayerToCenter(coreNodes, 0, coreStiffness);
+        ConnectLayerToCenter(middleNodes, 1, middleStiffness);
+        ConnectLayerToCenter(surfaceNodes, 2, surfaceStiffness);
+
+        ConnectNodesInLayer(coreNodes, coreStiffness * 2f, 0.9f);
+        ConnectNodesInLayer(middleNodes, middleStiffness * 1.2f, 0.7f);
+        ConnectNodesInLayer(surfaceNodes, surfaceStiffness * 0.8f, 0.4f);
+
+        ConnectAdjacentLayers(coreNodes, middleNodes, 0.8f, coreStiffness);
+        ConnectAdjacentLayers(middleNodes, surfaceNodes, 0.6f, middleStiffness);
+    }
+
+    void ConnectLayerToCenter(List<Rigidbody2D> nodes, int layerIndex, float stiffness)
+    {
+        float distance = layerDistances[layerIndex];
+        foreach (Rigidbody2D node in nodes)
+        {
+            SpringJoint2D joint = node.gameObject.AddComponent<SpringJoint2D>();
+            joint.connectedBody = centerBody;
+            joint.distance = distance;
+            joint.dampingRatio = 0.85f;
+            joint.frequency = stiffness / 150f;
+            joint.autoConfigureDistance = false;
+            joint.breakForce = Mathf.Infinity;
+        }
+    }
+
+    void ConnectNodesInLayer(List<Rigidbody2D> nodes, float stiffness, float damping)
+    {
+        int count = nodes.Count;
+        for (int i = 0; i < count; i++)
+        {
+            int next = (i + 1) % count;
+            SpringJoint2D joint = nodes[i].gameObject.AddComponent<SpringJoint2D>();
+            joint.connectedBody = nodes[next];
+
+            float radius = GetLayerRadius(nodes);
+            float circumference = 2f * Mathf.PI * radius;
+            float segmentLength = circumference / count;
+
+            joint.distance = segmentLength;
+            joint.dampingRatio = damping;
+            joint.frequency = stiffness / 150f;
+            joint.autoConfigureDistance = false;
+            joint.breakForce = Mathf.Infinity;
+        }
+    }
+
+    void ConnectAdjacentLayers(List<Rigidbody2D> innerNodes, List<Rigidbody2D> outerNodes, float distanceMultiplier, float stiffness)
+    {
+        for (int i = 0; i < outerNodes.Count; i++)
+        {
+            int innerIndex = Mathf.RoundToInt((float)i / outerNodes.Count * innerNodes.Count) % innerNodes.Count;
+            float distance = (GetLayerRadius(outerNodes) - GetLayerRadius(innerNodes)) * distanceMultiplier;
+
+            SpringJoint2D joint = outerNodes[i].gameObject.AddComponent<SpringJoint2D>();
+            joint.connectedBody = innerNodes[innerIndex];
+            joint.distance = distance;
+            joint.dampingRatio = 0.8f;
+            joint.frequency = stiffness / 180f;
+            joint.autoConfigureDistance = false;
+            joint.breakForce = Mathf.Infinity;
+        }
+    }
+
+    float GetLayerRadius(List<Rigidbody2D> nodes)
+    {
+        if (nodes == coreNodes) return layerDistances[0];
+        if (nodes == middleNodes) return layerDistances[1];
+        if (nodes == surfaceNodes) return layerDistances[2];
+        return 1f;
+    }
+
+    void Update()
+    {
+        GetPlayerInput();
+        oscillationTimer += Time.deltaTime;
+
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            if (CanJump())
+            {
+                StartJump();
+            }
+            else if (isOnWall)
+            {
+                // Прыжок от стены
+                WallJump();
+            }
+        }
+
+        // Новая логика для S: работает только когда на земле
+        if (Input.GetKey(KeyCode.S) && IsOnGround())
+        {
+            isHoldingS = true;
+
+            if (!isJumping && !isCrouching)
+            {
+                StartCrouch();
+            }
+        }
+        else
+        {
+            isHoldingS = false;
+            if (isCrouching)
+            {
+                StopCrouch();
+            }
+        }
+
+        // Проверка застревания по вводу
+        CheckInputStuck();
+
+        // Определение лазания по стенам
+        UpdateWallClimbingState();
+
+        // Определение наклонных поверхностей
+        UpdateSlopeDetection();
+    }
+
+    void UpdateSlopeDetection()
+    {
+        isOnSlope = false;
+        groundNormal = Vector2.up;
+
+        if (IsOnGround())
+        {
+            // Используем луч для определения наклона поверхности под центром
+            RaycastHit2D hit = Physics2D.Raycast(centerBody.position, Vector2.down,
+                slopeDetectionRange, obstacleLayers);
+
+            if (hit.collider != null)
+            {
+                groundNormal = hit.normal;
+                currentSlopeAngle = Vector2.Angle(groundNormal, Vector2.up);
+                isOnSlope = currentSlopeAngle > 5f && currentSlopeAngle < 85f;
+
+                // Вычисляем перпендикуляр к наклону для движения
+                slopePerpendicular = new Vector2(-groundNormal.y, groundNormal.x);
+
+                // Визуализация в редакторе
+                Debug.DrawRay(hit.point, groundNormal * 1f, Color.blue);
+                Debug.DrawRay(centerBody.position, slopePerpendicular * 1f, Color.yellow);
+            }
+        }
+    }
+
+    void UpdateWallClimbingState()
+    {
+        // Проверяем контакт с поверхностями через коллайдер центра
+        wallContactCount = centerBody.GetContacts(wallContacts);
+
+        bool wasOnWall = isOnWall;
+        isOnWall = false;
+        wallNormal = Vector2.zero;
+
+        if (wallContactCount > 0 && !IsOnGround())
+        {
+            // Анализируем контакты для определения стены
+            Vector2 averageNormal = Vector2.zero;
+            int validWallContacts = 0;
+
+            for (int i = 0; i < wallContactCount; i++)
+            {
+                ContactPoint2D contact = wallContacts[i];
+                float angle = Vector2.Angle(contact.normal, Vector2.up);
+
+                // Если поверхность достаточно вертикальная для лазания
+                if (angle > 30f && angle < maxWallAngle && contact.collider.CompareTag("Ground"))
+                {
+                    averageNormal += contact.normal;
+                    validWallContacts++;
+                    isOnWall = true;
+                }
+            }
+
+            if (validWallContacts > 0)
+            {
+                wallNormal = (averageNormal / validWallContacts).normalized;
+
+                // Определяем направление лазания на основе ввода
+                if (moveInput.magnitude > 0.1f)
+                {
+                    Vector2 tangent = new Vector2(-wallNormal.y, wallNormal.x);
+                    float inputAlignment = Vector2.Dot(moveInput.normalized, tangent);
+
+                    if (Mathf.Abs(inputAlignment) > 0.3f)
+                    {
+                        isWallClimbing = true;
+                        wallClimbDirection = tangent * Mathf.Sign(inputAlignment);
+                        wallStickTimer = 0f;
+                    }
+                }
+            }
+        }
+
+        // Если нет контактов со стеной или мы на земле - выключаем лазание
+        if (!isOnWall || IsOnGround())
+        {
+            isWallClimbing = false;
+        }
+
+        // Автоматическое отлипание после времени
+        if (isWallClimbing)
+        {
+            wallStickTimer += Time.deltaTime;
+            if (wallStickTimer > WALL_STICK_MAX_TIME)
+            {
+                isWallClimbing = false;
+                isOnWall = false;
+            }
+        }
+
+        // Визуализация
+        if (isOnWall)
+        {
+            Debug.DrawRay(transform.position, wallNormal * 1f, Color.red);
+            if (isWallClimbing)
+            {
+                Debug.DrawRay(transform.position, wallClimbDirection * 1f, Color.green);
+            }
+        }
+    }
+
+    void CheckInputStuck()
+    {
+        // Проверяем, есть ли ввод, но слизь не движется
+        bool hasInput = moveInput.magnitude > 0.1f;
+        bool isMoving = Vector2.Distance(transform.position, lastCenterPosition) > 0.05f;
+
+        if (hasInput && !isMoving && IsOnGround())
+        {
+            inputStuckTimer += Time.deltaTime;
+            if (inputStuckTimer >= INPUT_STUCK_TIME)
+            {
+                // Активируем принудительное кучкование
+                ForceGatherNodes();
+                inputStuckTimer = 0f;
+            }
+        }
+        else
+        {
+            inputStuckTimer = 0f;
+        }
+
+        lastCenterPosition = transform.position;
+    }
+
+    void ForceGatherNodes()
+    {
+        // Собираем только несколько узлов, а не все
+        int nodesToGather = Mathf.Min(maxSimultaneousGathers, surfaceNodes.Count / 3);
+        int gatheredCount = 0;
+
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null && gatheredCount < nodesToGather)
+            {
+                float distance = Vector2.Distance(node.position, centerBody.position);
+                if (distance > inputStuckRadius)
+                {
+                    var nodeBehavior = node.GetComponent<SlimeNodeBehavior>();
+                    if (nodeBehavior != null && !nodeBehavior.IsGathering())
+                    {
+                        nodeBehavior.ForceGather();
+                        gatheredCount++;
+                    }
+                }
+            }
+        }
+        Debug.Log($"Активировано принудительное кучкование {gatheredCount} узлов");
+    }
+
+    void FixedUpdate()
+    {
+        ApplyMovement();
+        HandleJump();
+        HandleWallClimbing();
+        ApplyCrouchForces();
+        ApplyLiquidBehavior();
+        StabilizeNodesPosition();
+        PreventNodeSticking();
+        ApplyCorePriority();
+        ApplyGroundFriction();
+        LimitNodeVelocities();
+        ApplyEnhancedGravity();
+        HandleAutoGathering();
+    }
+
+    void HandleWallClimbing()
+    {
+        if (isWallClimbing)
+        {
+            // Применяем силу прилипания к стене
+            centerBody.AddForce(-wallNormal * wallStickForce);
+
+            // Двигаемся вдоль стены
+            Vector2 climbVelocity = wallClimbDirection * wallClimbSpeed;
+            centerBody.AddForce(climbVelocity * 10f);
+
+            // Притягиваем узлы к стене для лучшего сцепления
+            foreach (Rigidbody2D node in coreNodes)
+            {
+                if (node != null)
+                {
+                    // Вычисляем проекцию узла на стену
+                    Vector2 toNode = node.position - centerBody.position;
+                    float distanceToWall = Vector2.Dot(toNode, -wallNormal);
+
+                    if (distanceToWall > 0.5f)
+                    {
+                        node.AddForce(-wallNormal * wallAttractionForce * 0.8f);
+                    }
+                }
+            }
+
+            foreach (Rigidbody2D node in middleNodes)
+            {
+                if (node != null)
+                {
+                    Vector2 toNode = node.position - centerBody.position;
+                    float distanceToWall = Vector2.Dot(toNode, -wallNormal);
+
+                    if (distanceToWall > 0.7f)
+                    {
+                        node.AddForce(-wallNormal * wallAttractionForce * 0.6f);
+                    }
+                }
+            }
+
+            // Уменьшаем гравитацию при лазании
+            centerBody.AddForce(Vector2.down * wallClimbGravity);
+        }
+        else if (isOnWall && !IsOnGround())
+        {
+            // Режим соскальзывания - слабее прилипание
+            centerBody.AddForce(-wallNormal * wallStickForce * 0.3f);
+            centerBody.AddForce(Vector2.down * wallSlideGravity);
+        }
+    }
+
+    void WallJump()
+    {
+        if (!isOnWall) return;
+
+        isJumping = true;
+        jumpTimer = 0f;
+        isWallClimbing = false;
+        isOnWall = false;
+
+        // Прыжок от стены - отталкиваемся в противоположном направлении + вверх
+        Vector2 jumpDir = (Vector2.up + (wallNormal * 0.7f)).normalized;
+        currentJumpSpeed = jumpInitialSpeed * 1.3f;
+
+        centerBody.AddForce(jumpDir * wallJumpForce, ForceMode2D.Impulse);
+
+        // Также отталкиваем узлы
+        foreach (Rigidbody2D node in coreNodes)
+        {
+            if (node != null)
+                node.AddForce(jumpDir * wallJumpForce * 0.7f);
+        }
+        foreach (Rigidbody2D node in middleNodes)
+        {
+            if (node != null)
+                node.AddForce(jumpDir * wallJumpForce * 0.5f);
+        }
+        foreach (Rigidbody2D node in surfaceNodes)
+        {
+            if (node != null)
+                node.AddForce(jumpDir * wallJumpForce * 0.3f);
+        }
+
+        Debug.Log("Прыжок от стены!");
+    }
+
+    void StabilizeNodesPosition()
+    {
+        // ФИКСАЦИЯ CORE NODES - всегда возвращаются на свои позиции
+        for (int i = 0; i < coreNodes.Count; i++)
+        {
+            if (coreNodes[i] == null) continue;
+
+            Vector2 targetPos = (Vector2)transform.position + nodeRestPositions[i];
+            Vector2 toTarget = targetPos - (Vector2)coreNodes[i].position;
+            float distance = toTarget.magnitude;
+
+            // Если узел слишком далеко, применяем сильную возвращающую силу
+            if (distance > coreNodeMaxDistance)
+            {
+                float forceMultiplier = Mathf.Pow(distance / coreNodeMaxDistance, 2f);
+                coreNodes[i].AddForce(toTarget.normalized * coreNodeReturnForce * forceMultiplier);
+            }
+            else if (distance > 0.3f)
+            {
+                // Стандартная стабилизация
+                coreNodes[i].AddForce(toTarget.normalized * distance * 120f);
+            }
+        }
+
+        // ФИКСАЦИЯ MIDDLE NODES - умеренное возвращение
+        int middleStartIndex = coreNodesCount;
+        for (int i = 0; i < middleNodes.Count; i++)
+        {
+            if (middleNodes[i] == null) continue;
+
+            Vector2 targetPos = (Vector2)transform.position + nodeRestPositions[middleStartIndex + i];
+            Vector2 toTarget = targetPos - (Vector2)middleNodes[i].position;
+            float distance = toTarget.magnitude;
+
+            if (distance > middleNodeMaxDistance)
+            {
+                float forceMultiplier = Mathf.Pow(distance / middleNodeMaxDistance, 1.5f);
+                middleNodes[i].AddForce(toTarget.normalized * middleNodeReturnForce * forceMultiplier);
+            }
+            else if (distance > 0.4f)
+            {
+                middleNodes[i].AddForce(toTarget.normalized * distance * 80f);
+            }
+        }
+    }
+
+    void GetPlayerInput()
+    {
+        moveInput = Vector2.zero;
+
+        // Только горизонтальное движение
+        if (Input.GetKey(KeyCode.A)) moveInput.x -= 1f;
+        if (Input.GetKey(KeyCode.D)) moveInput.x += 1f;
+        moveInput = moveInput.normalized;
+    }
+
+    void ApplyMovement()
+    {
+        if (moveInput.magnitude > 0.1f && !isWallClimbing)
+        {
+            // Определяем текущую скорость в зависимости от состояния
+            float currentMoveSpeed = GetCurrentMoveSpeed();
+
+            // Корректируем направление движения на наклонных поверхностях
+            Vector2 adjustedMoveDirection = moveInput;
+            if (isOnSlope && IsOnGround())
+            {
+                // Проецируем вектор движения на направление вдоль склона
+                adjustedMoveDirection = Vector3.ProjectOnPlane(moveInput.normalized, groundNormal).normalized;
+            }
+
+            Vector2 targetVelocity = adjustedMoveDirection * currentMoveSpeed;
+
+            // Применяем движение с разной силой в зависимости от состояния
+            if (IsOnGround())
+            {
+                // На земле - стандартное движение
+                Vector2 velocityChange = targetVelocity - centerBody.linearVelocity;
+                centerBody.AddForce(velocityChange * 20f);
+            }
+            else
+            {
+                // В воздухе - более слабое управление
+                centerBody.AddForce(moveInput * airControlForce);
+            }
+        }
+    }
+
+    float GetCurrentMoveSpeed()
+    {
+        float baseSpeed = moveSpeed;
+
+        // Учитываем состояние приседания
+        if (isCrouching && IsOnGround())
+            baseSpeed *= crouchSpeedMultiplier;
+
+        // Учитываем состояние в воздухе
+        if (!IsOnGround() && !isOnWall && !isWallClimbing)
+            baseSpeed = airMoveSpeed;
+
+        return baseSpeed;
+    }
+
+    void ApplyGroundFriction()
+    {
+        if (IsOnGround() && moveInput.magnitude < 0.1f && centerBody.linearVelocity.magnitude < 0.5f)
+        {
+            centerBody.linearVelocity = new Vector2(0f, centerBody.linearVelocity.y);
+        }
+    }
+
+    void ApplyEnhancedGravity()
+    {
+        if (isWallClimbing || isOnWall) return; // Не применяем усиленную гравитацию при лазании
+
+        // Усиленная гравитация для более быстрого падения
+        foreach (Rigidbody2D node in coreNodes)
+            if (node != null) node.AddForce(Vector2.down * 5f);
+        foreach (Rigidbody2D node in middleNodes)
+            if (node != null) node.AddForce(Vector2.down * 8f);
+        foreach (Rigidbody2D node in surfaceNodes)
+            if (node != null) node.AddForce(Vector2.down * 10f);
+    }
+
+    void StartCrouch()
+    {
+        isCrouching = true;
+        // Уменьшаем коллайдер центра при приседании
+        if (centerCollider != null)
+        {
+            centerCollider.radius = originalColliderRadius * crouchHeightReduction;
+        }
+    }
+
+    void StopCrouch()
+    {
+        isCrouching = false;
+        // Восстанавливаем коллайдер центра
+        if (centerCollider != null)
+        {
+            centerCollider.radius = originalColliderRadius;
+        }
+    }
+
+    void ApplyCrouchForces()
+    {
+        if (isCrouching && IsOnGround())
+        {
+            // Прижимаем центр к земле
+            centerBody.AddForce(Vector2.down * crouchGroundPullForce);
+
+            foreach (var node in surfaceNodes)
+            {
+                if (node == null) continue;
+                if (node.position.y > centerBody.position.y)
+                {
+                    node.AddForce(Vector2.down * crouchForce);
+                }
+            }
+
+            foreach (var node in middleNodes)
+            {
+                if (node == null) continue;
+                if (node.position.y > centerBody.position.y)
+                {
+                    node.AddForce(Vector2.down * crouchForce * 0.7f);
+                }
+            }
+        }
+    }
+
+    void HandleAutoGathering()
+    {
+        // Проверяем не чаще чем раз в 0.5 секунды
+        if (Time.time - lastGatherCheck < 0.5f) return;
+        lastGatherCheck = Time.time;
+
+        // Проверяем, нужно ли автоматическое кучкование
+        int nodesOutsideRadius = 0;
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+            {
+                float distance = Vector2.Distance(node.position, centerBody.position);
+                if (distance > autoGatherRadius)
+                {
+                    nodesOutsideRadius++;
+                }
+            }
+        }
+
+        float percentageOutside = (float)nodesOutsideRadius / surfaceNodes.Count;
+
+        if (percentageOutside > autoGatherThreshold)
+        {
+            // Вычисляем сколько узлов нужно вернуть для поддержания порога
+            int targetNodesOutside = Mathf.FloorToInt(surfaceNodes.Count * autoGatherThreshold);
+            int nodesToGather = Mathf.Min(nodesOutsideRadius - targetNodesOutside, maxSimultaneousGathers);
+
+            int gatheredCount = 0;
+
+            // Активируем кучкование для нескольких внешних узлов за радиусом
+            foreach (var node in surfaceNodes)
+            {
+                if (node != null && gatheredCount < nodesToGather)
+                {
+                    float distance = Vector2.Distance(node.position, centerBody.position);
+                    if (distance > autoGatherRadius)
+                    {
+                        var nodeBehavior = node.GetComponent<SlimeNodeBehavior>();
+                        if (nodeBehavior != null && !nodeBehavior.IsGathering())
+                        {
+                            nodeBehavior.StartAutoGather();
+                            gatheredCount++;
+                        }
+                    }
+                }
+            }
+
+            if (gatheredCount > 0)
+            {
+                Debug.Log($"Автоматическое кучкование: {gatheredCount} узлов (вне радиуса: {nodesOutsideRadius})");
+            }
+        }
+    }
+
+    void StartJump()
+    {
+        if (!isJumping && CanJump())
+        {
+            isJumping = true;
+            jumpTimer = 0f;
+
+            currentJumpSpeed = jumpInitialSpeed / Mathf.Max(0.5f, currentMass);
+
+            // Усиление прыжка при приседании
+            if (isHoldingS)
+            {
+                currentJumpSpeed *= 1.5f;
+            }
+        }
+    }
+
+    void HandleJump()
+    {
+        if (isJumping)
+        {
+            jumpTimer += Time.fixedDeltaTime;
+
+            if (jumpTimer < maxJumpTime)
+            {
+                float jumpForce = currentJumpSpeed * Mathf.Pow(jumpDecayRate, jumpTimer * 10f);
+
+                centerBody.AddForce(Vector2.up * jumpForce);
+
+                foreach (Rigidbody2D node in coreNodes)
+                {
+                    if (node != null)
+                        node.AddForce(Vector2.up * jumpForce * 0.7f);
+                }
+                foreach (Rigidbody2D node in middleNodes)
+                {
+                    if (node != null)
+                        node.AddForce(Vector2.up * jumpForce * 0.5f);
+                }
+                foreach (Rigidbody2D node in surfaceNodes)
+                {
+                    if (node != null)
+                        node.AddForce(Vector2.up * jumpForce * 0.3f);
+                }
+            }
+            else
+            {
+                EndJump();
+            }
+        }
+    }
+
+    void EndJump()
+    {
+        isJumping = false;
+    }
+
+    void LimitNodeVelocities()
+    {
+        foreach (Rigidbody2D node in coreNodes)
+        {
+            if (node != null && node.linearVelocity.magnitude > maxNodeVelocity)
+            {
+                node.linearVelocity = node.linearVelocity.normalized * maxNodeVelocity;
+            }
+        }
+        foreach (Rigidbody2D node in middleNodes)
+        {
+            if (node != null && node.linearVelocity.magnitude > maxNodeVelocity)
+            {
+                node.linearVelocity = node.linearVelocity.normalized * maxNodeVelocity;
+            }
+        }
+        foreach (Rigidbody2D node in surfaceNodes)
+        {
+            if (node != null && node.linearVelocity.magnitude > maxNodeVelocity)
+            {
+                node.linearVelocity = node.linearVelocity.normalized * maxNodeVelocity;
+            }
+        }
+    }
+
+    void ApplyCorePriority()
+    {
+        if (moveInput.magnitude > 0.1f && !isWallClimbing)
+        {
+            Vector2 moveDirection = moveInput.normalized;
+
+            foreach (Rigidbody2D node in coreNodes)
+            {
+                if (node == null) continue;
+
+                Vector2 toCenter = (centerBody.position - node.position);
+                float alignment = Vector2.Dot(toCenter.normalized, moveDirection);
+
+                if (alignment < 0.5f)
+                {
+                    node.AddForce(moveDirection * corePriorityForce * 0.8f);
+                }
+            }
+
+            foreach (Rigidbody2D node in middleNodes)
+            {
+                if (node == null) continue;
+
+                Vector2 toCenter = (centerBody.position - node.position);
+                float alignment = Vector2.Dot(toCenter.normalized, moveDirection);
+
+                if (alignment < 0.3f)
+                {
+                    node.AddForce(moveDirection * corePriorityForce * 0.5f);
+                }
+            }
+
+            foreach (Rigidbody2D node in surfaceNodes)
+            {
+                if (node == null) continue;
+
+                Vector2 toCenter = (centerBody.position - node.position);
+                float alignment = Vector2.Dot(toCenter.normalized, moveDirection);
+
+                if (alignment < 0.1f)
+                {
+                    node.AddForce(moveDirection * corePriorityForce * 0.3f);
+                }
+            }
+        }
+    }
+
+    void ApplyLiquidBehavior()
+    {
+        for (int i = 0; i < surfaceNodes.Count; i++)
+        {
+            if (surfaceNodes[i] == null) continue;
+
+            float oscillation = Mathf.Sin(oscillationTimer * 2f + surfaceOscillationOffsets[i]) * surfaceOscillationForce;
+            Vector2 oscillationDir = GetTangentialDirection(surfaceNodes[i].position, centerBody.position);
+
+            surfaceNodes[i].AddForce(oscillationDir * oscillation * surfaceFluidity);
+        }
+    }
+
+    Vector2 GetTangentialDirection(Vector2 nodePos, Vector2 centerPos)
+    {
+        Vector2 toCenter = centerPos - nodePos;
+        return new Vector2(-toCenter.y, toCenter.x).normalized;
+    }
+
+    void PreventNodeSticking()
+    {
+        foreach (Rigidbody2D node in surfaceNodes)
+        {
+            if (node == null) continue;
+
+            Collider2D[] nearbyObstacles = Physics2D.OverlapCircleAll(node.position, 0.2f, obstacleLayers);
+            foreach (Collider2D obstacle in nearbyObstacles)
+            {
+                if (obstacle.CompareTag("Ground"))
+                {
+                    Vector2 repelDir = (node.position - (Vector2)obstacle.transform.position).normalized;
+                    if (repelDir.magnitude < 0.1f) repelDir = Random.insideUnitCircle.normalized;
+
+                    node.AddForce(repelDir * nodeRepelForce);
+                }
+            }
+        }
+    }
+
+    public void ReportSurfaceGroundContact(bool isContact)
+    {
+        if (isContact)
+            surfaceGroundContactCount++;
+        else
+            surfaceGroundContactCount--;
+
+        surfaceGroundContactCount = Mathf.Clamp(surfaceGroundContactCount, 0, surfaceNodesCount);
+    }
+
+    bool IsOnGround()
+    {
+        return surfaceGroundContactCount > 0;
+    }
+
+    bool CanJump()
+    {
+        // Проверяем, что хотя бы один узел касается выбранных слоев земли
+        if (!IsTouchingJumpGroundLayers())
+            return false;
+
+        float groundPercentage = (float)surfaceGroundContactCount / surfaceNodesCount;
+        return groundPercentage >= jumpGroundPercentage;
+    }
+
+    bool IsTouchingJumpGroundLayers()
+    {
+        // Проверяем все узлы на контакт с выбранными слоями земли
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        foreach (var node in coreNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    public List<Rigidbody2D> GetNodesByLayer(int layerIndex)
+    {
+        switch (layerIndex)
+        {
+            case 0: return coreNodes;
+            case 1: return middleNodes;
+            case 2: return surfaceNodes;
+            default: return new List<Rigidbody2D>();
+        }
+    }
+
+    // Методы для визуализации в редакторе
+    void OnDrawGizmosSelected()
+    {
+        // Визуализация всех радиусов
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, unstuckRadius);
+
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, autoGatherRadius);
+
+        Gizmos.color = Color.blue;
+        Gizmos.DrawWireSphere(transform.position, inputStuckRadius);
+
+        // Визуализация состояния лазания
+        if (isOnWall)
+        {
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(transform.position, 0.4f);
+
+            if (isWallClimbing)
+            {
+                Gizmos.color = Color.green;
+                Gizmos.DrawWireSphere(transform.position, 0.3f);
+            }
+        }
+
+        // Визуализация проверки слоев для прыжка
+        Gizmos.color = Color.cyan;
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+        foreach (var node in coreNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+
+        // Визуализация обнаружения наклона
+        if (isOnSlope)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawRay(transform.position, groundNormal * 1f);
+            Gizmos.DrawRay(transform.position, slopePerpendicular * 1f);
+        }
+    }
+
+    public float GetGroundContactPercentage()
+    {
+        return (float)surfaceGroundContactCount / surfaceNodesCount * 100f;
+    }
+
+    public Vector2 GetCenterVelocity()
+    {
+        return centerBody != null ? centerBody.linearVelocity : Vector2.zero;
+    }
+
+    public bool IsJumping()
+    {
+        return isJumping;
+    }
+
+    public bool IsCrouching()
+    {
+        return isCrouching;
+    }
+
+    public bool IsOnWall()
+    {
+        return isOnWall;
+    }
+
+    public bool IsWallClimbing()
+    {
+        return isWallClimbing;
+    }
+
+    public bool IsOnSlope()
+    {
+        return isOnSlope;
+    }
+
+    public float GetCurrentSlopeAngle()
+    {
+        return currentSlopeAngle;
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Health.cs
+================================================================================
+
+using UnityEngine;
+
+public class Health : MonoBehaviour
+{
+    public float maxHealth = 100f;
+    private float currentHealth;
+
+    void Start()
+    {
+        currentHealth = maxHealth;
+    }
+
+    public void TakeDamage(float damage)
+    {
+        currentHealth -= damage;
+        Debug.Log($"{gameObject.name} took {damage} damage. Health: {currentHealth}");
+
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+    }
+
+    private void Die()
+    {
+        Debug.Log($"{gameObject.name} died!");
+        Destroy(gameObject);
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Inventory.cs
+================================================================================
+
+using UnityEngine;
+
+public class PanelController : MonoBehaviour
+{
+    [Header("Panels")]
+    public RectTransform inventoryPanel;
+    public RectTransform bottomPanel; // карта
+    public RectTransform coreSystemPanel;
+
+    [Header("HUD")]
+    public RectTransform hudPanel;
+
+    [Header("Speeds")]
+    public float inventorySpeed = 5f;
+    public float bottomPanelSpeed = 5f;
+    public float corePanelSpeed = 5f;
+    public float hudSpeed = 5f;
+
+    [Header("Offsets")]
+    public float bottomPanelMoveDistance = 1200f;
+    public float corePanelMoveDistance = 1000f;
+    public float hudHiddenOffset = -200f; // смещение HUD вниз при скрытии
+
+    private enum PanelType { None, Inventory, Bottom, CoreSystem }
+    private PanelType activePanel = PanelType.None;
+
+    // Позиции
+    private Vector2 invClosedPos;
+    private Vector2 invOpenPos;
+    private Vector2 bottomClosedPos;
+    private Vector2 bottomOpenPos;
+    private Vector2 coreClosedPos;
+    private Vector2 coreOpenPos;
+    private Vector2 hudBasePos;
+    private Vector2 hudTargetPos;
+
+    void Start()
+    {
+        // Inventory
+        invClosedPos = new Vector2(-inventoryPanel.rect.width, inventoryPanel.anchoredPosition.y);
+        invOpenPos = new Vector2(0, inventoryPanel.anchoredPosition.y);
+        inventoryPanel.anchoredPosition = invClosedPos;
+
+        // Bottom Panel (Map)
+        bottomClosedPos = bottomPanel.anchoredPosition;
+        bottomOpenPos = bottomClosedPos + new Vector2(0, bottomPanelMoveDistance);
+        bottomPanel.anchoredPosition = bottomClosedPos;
+
+        // Core System Panel
+        coreClosedPos = coreSystemPanel.anchoredPosition;
+        coreOpenPos = coreClosedPos + new Vector2(corePanelMoveDistance, 0);
+        coreSystemPanel.anchoredPosition = coreClosedPos;
+
+        // HUD
+        hudBasePos = hudPanel.anchoredPosition;
+        hudTargetPos = hudBasePos;
+    }
+
+    void Update()
+    {
+        // Клавиши для переключения панели
+        if (Input.GetKeyDown(KeyCode.I)) TogglePanel(PanelType.Inventory);
+        if (Input.GetKeyDown(KeyCode.M)) TogglePanel(PanelType.Bottom);
+        if (Input.GetKeyDown(KeyCode.C)) TogglePanel(PanelType.CoreSystem);
+
+        // Плавное движение Inventory
+        inventoryPanel.anchoredPosition = Vector2.Lerp(
+            inventoryPanel.anchoredPosition,
+            activePanel == PanelType.Inventory ? invOpenPos : invClosedPos,
+            Time.deltaTime * inventorySpeed
+        );
+
+        // Плавное движение Bottom Panel
+        bottomPanel.anchoredPosition = Vector2.Lerp(
+            bottomPanel.anchoredPosition,
+            activePanel == PanelType.Bottom ? bottomOpenPos : bottomClosedPos,
+            Time.deltaTime * bottomPanelSpeed
+        );
+
+        // Плавное движение Core System Panel
+        coreSystemPanel.anchoredPosition = Vector2.Lerp(
+            coreSystemPanel.anchoredPosition,
+            activePanel == PanelType.CoreSystem ? coreOpenPos : coreClosedPos,
+            Time.deltaTime * corePanelSpeed
+        );
+
+        // Плавное движение HUD
+        // HUD скрывается, если любая панель открыта
+        bool anyPanelOpen = activePanel != PanelType.None;
+
+        hudTargetPos = anyPanelOpen ? hudBasePos + new Vector2(0, hudHiddenOffset) : hudBasePos;
+
+        hudPanel.anchoredPosition = Vector2.Lerp(
+            hudPanel.anchoredPosition,
+            hudTargetPos,
+            Time.deltaTime * hudSpeed
+        );
+    }
+
+    void TogglePanel(PanelType panel)
+    {
+        if (activePanel == panel)
+        {
+            // если эта панель уже открыта, закрываем её
+            activePanel = PanelType.None;
+        }
+        else
+        {
+            // открываем выбранную панель, все остальные закрываются автоматически
+            activePanel = panel;
+        }
+    }
+}
+
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\SlimeNodeBehavior.cs
+================================================================================
+
+using UnityEngine;
+
+public class SlimeNodeBehavior : MonoBehaviour
+{
+    [Header("=== НАСТРОЙКИ СКОЛЬЖЕНИЯ ===")]
+    public float personalSlideForce = 15f;
+    public float slideDetectionDistance = 0.5f;
+
+    public int layerIndex { get; private set; }
+
+    private SlimeCharacterController slimeController;
+    private Rigidbody2D nodeRigidbody;
+    private Rigidbody2D centerBody;
+    private Collider2D nodeCollider;
+    private float lastStuckCheck;
+    private bool isStuck = false;
+    private float stuckTimer = 0f;
+    private bool isGrounded = false;
+    private float maxDistanceFromCenter;
+    private float maxNodeVelocity;
+    private float unstuckRadius;
+    private float autoGatherRadius;
+    private float inputStuckRadius;
+
+    // Системы восстановления
+    private bool isRecovering = false;
+    private bool isAutoGathering = false;
+    private float recoveryTimer = 0f;
+    private const float RECOVERY_DURATION = 1.0f;
+    private const float AUTO_GATHER_DURATION = 0.7f;
+
+    // Флаг завершенной инициализации
+    private bool isInitialized = false;
+
+    public void Initialize(SlimeCharacterController controller, Rigidbody2D center, int layer,
+                          float maxDistance, float maxVelocity,
+                          float unstuckRadiusValue, float autoGatherRadiusValue, float inputStuckRadiusValue)
+    {
+        slimeController = controller;
+        centerBody = center;
+        nodeRigidbody = GetComponent<Rigidbody2D>();
+        nodeCollider = GetComponent<Collider2D>();
+        layerIndex = layer;
+        maxDistanceFromCenter = maxDistance;
+        maxNodeVelocity = maxVelocity;
+        unstuckRadius = unstuckRadiusValue;
+        autoGatherRadius = autoGatherRadiusValue;
+        inputStuckRadius = inputStuckRadiusValue;
+
+        // Проверяем критически важные компоненты
+        if (nodeRigidbody == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: Rigidbody2D not found on {gameObject.name}");
+            return;
+        }
+
+        if (slimeController == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: SlimeController not assigned on {gameObject.name}");
+            return;
+        }
+
+        if (centerBody == null)
+        {
+            Debug.LogError($"SlimeNodeBehavior: CenterBody not assigned on {gameObject.name}");
+            return;
+        }
+
+        isInitialized = true;
+    }
+
+    // Метод для безопасной проверки инициализации
+    private bool IsProperlyInitialized()
+    {
+        return isInitialized &&
+               nodeRigidbody != null &&
+               slimeController != null &&
+               centerBody != null;
+    }
+
+    void Update()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        // Проверка застревания каждые 0.3 секунды
+        if (Time.time - lastStuckCheck > 0.3f)
+        {
+            CheckIfStuck();
+            lastStuckCheck = Time.time;
+        }
+
+        // Обработка восстановления
+        if (isRecovering)
+        {
+            HandleRecovery();
+        }
+
+        // Обработка автоматического кучкования
+        if (isAutoGathering)
+        {
+            HandleAutoGather();
+        }
+    }
+
+    void CheckIfStuck()
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
+
+        // Основное застревание - за пределами максимального радиуса
+        bool shouldBeStuck = distanceFromCenter > unstuckRadius &&
+                            nodeRigidbody.linearVelocity.magnitude < 0.2f;
+
+        if (shouldBeStuck && !isStuck)
+        {
+            StartStuckRecovery();
+        }
+        else if (!shouldBeStuck && isStuck)
+        {
+            isStuck = false;
+            stuckTimer = 0f;
+        }
+
+        // Аварийное восстановление после длительного застревания
+        if (isStuck)
+        {
+            stuckTimer += Time.deltaTime;
+            if (stuckTimer > 3f)
+            {
+                StartStuckRecovery();
+                stuckTimer = 0f;
+            }
+        }
+    }
+
+    public void StartAutoGather()
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        isAutoGathering = true;
+        recoveryTimer = 0f;
+
+        // Отключаем коллизию на время кучкования
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = false;
+        }
+    }
+
+    public void ForceGather()
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        float distanceFromCenter = Vector2.Distance(centerBody.position, nodeRigidbody.position);
+        if (distanceFromCenter > inputStuckRadius)
+        {
+            StartAutoGather();
+        }
+    }
+
+    void HandleAutoGather()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        recoveryTimer += Time.deltaTime;
+
+        if (recoveryTimer < AUTO_GATHER_DURATION)
+        {
+            // Плавное перемещение не к самому центру, а к границе autoGatherRadius
+            float targetDistance = autoGatherRadius * 0.6f;
+            Vector2 targetDirection = (centerBody.position - nodeRigidbody.position).normalized;
+            Vector2 targetPosition = (Vector2)centerBody.position - targetDirection * targetDistance;
+
+            Vector2 newPosition = Vector2.Lerp(nodeRigidbody.position, targetPosition, recoveryTimer / AUTO_GATHER_DURATION);
+
+            // Добавляем небольшое случайное смещение для естественности
+            if (recoveryTimer > AUTO_GATHER_DURATION * 0.5f)
+            {
+                newPosition += Random.insideUnitCircle * 0.1f;
+            }
+
+            nodeRigidbody.MovePosition(newPosition);
+        }
+        else
+        {
+            // Завершение автоматического кучкования
+            EndAutoGather();
+        }
+    }
+
+    void EndAutoGather()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        isAutoGathering = false;
+        recoveryTimer = 0f;
+
+        // Включаем коллизию обратно
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = true;
+        }
+
+        // Даем небольшой импульс в случайном направлении
+        Vector2 randomDir = Random.insideUnitCircle.normalized;
+        nodeRigidbody.AddForce(randomDir * 8f, ForceMode2D.Impulse);
+    }
+
+    void StartStuckRecovery()
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        isStuck = true;
+        isRecovering = true;
+        recoveryTimer = 0f;
+
+        // Отключаем коллизию на время восстановления
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = false;
+        }
+    }
+
+    void HandleRecovery()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        recoveryTimer += Time.deltaTime;
+
+        if (recoveryTimer < RECOVERY_DURATION)
+        {
+            // Плавное перемещение к центру с небольшим случайным смещением
+            Vector2 targetPosition = Vector2.Lerp(nodeRigidbody.position, centerBody.position, recoveryTimer / RECOVERY_DURATION);
+
+            // Добавляем небольшое случайное смещение
+            if (recoveryTimer > RECOVERY_DURATION * 0.7f)
+            {
+                targetPosition += Random.insideUnitCircle * 0.15f;
+            }
+
+            nodeRigidbody.MovePosition(targetPosition);
+        }
+        else
+        {
+            // Завершение восстановления
+            EndRecovery();
+        }
+    }
+
+    void EndRecovery()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        isRecovering = false;
+        isStuck = false;
+        stuckTimer = 0f;
+
+        // Включаем коллизию обратно
+        if (nodeCollider != null)
+        {
+            nodeCollider.enabled = true;
+        }
+
+        // Даем небольшой импульс в случайном направлении
+        Vector2 randomDir = Random.insideUnitCircle.normalized;
+        nodeRigidbody.AddForce(randomDir * 12f, ForceMode2D.Impulse);
+    }
+
+    void FixedUpdate()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        // Применяем силы скольжения для улучшения движения по наклонным поверхностям
+        if (!isRecovering && !isAutoGathering && IsOnSlidableSurface() && slimeController.GetCenterVelocity().magnitude > 0.3f)
+        {
+            ApplyPersonalSlideForce();
+        }
+    }
+
+    bool IsOnSlidableSurface()
+    {
+        if (!IsProperlyInitialized()) return false;
+        if (nodeCollider != null && !nodeCollider.enabled) return false;
+
+        RaycastHit2D hit = Physics2D.Raycast(nodeRigidbody.position, Vector2.down, slideDetectionDistance, slimeController.obstacleLayers);
+        return hit.collider != null && hit.collider.CompareTag("Ground");
+    }
+
+    void ApplyPersonalSlideForce()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        Vector2 slideDirection = slimeController.GetCenterVelocity().normalized;
+        nodeRigidbody.AddForce(slideDirection * personalSlideForce);
+    }
+
+    public bool IsGathering()
+    {
+        return isRecovering || isAutoGathering;
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        if (collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
+
+            if (layerIndex == 2) // surface layer
+            {
+                slimeController.ReportSurfaceGroundContact(true);
+            }
+        }
+    }
+
+    void OnCollisionExit2D(Collision2D collision)
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        if (collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = false;
+
+            if (layerIndex == 2) // surface layer
+            {
+                slimeController.ReportSurfaceGroundContact(false);
+            }
+        }
+    }
+
+    void OnCollisionStay2D(Collision2D collision)
+    {
+        if (!IsProperlyInitialized() || isRecovering || isAutoGathering) return;
+
+        if (collision.gameObject.CompareTag("Ground") && nodeRigidbody.linearVelocity.magnitude < 0.2f)
+        {
+            // Легкое подталкивание для предотвращения залипания
+            ContactPoint2D contact = collision.contacts[0];
+            Vector2 pushDir = (nodeRigidbody.position - contact.point).normalized;
+            nodeRigidbody.AddForce(pushDir * 5f);
+        }
+    }
+
+    // Визуализация в редакторе
+    void OnDrawGizmosSelected()
+    {
+        if (!IsProperlyInitialized()) return;
+
+        if (isRecovering)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawWireSphere(transform.position, 0.2f);
+            Gizmos.DrawLine(transform.position, centerBody.position);
+        }
+        else if (isAutoGathering)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(transform.position, 0.15f);
+        }
+        else if (isStuck)
+        {
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(transform.position, 0.15f);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Visualizer.cs
+================================================================================
+
+using UnityEngine;
+using System.Collections.Generic;
+
+public class SlimeBoundsVisualizer : MonoBehaviour
+{
+    [Header("=== ВИЗУАЛИЗАЦИЯ ГАБАРИТОВ ===")]
+    public bool showBounds = true;
+    public Color boundsColor = new Color(0, 1, 1, 0.3f); // Голубой с прозрачностью
+    public bool showTrail = true;
+    public Color trailColor = new Color(1, 0.5f, 0, 0.8f); // Оранжевый
+    public float trailDuration = 3f; // Секунды истории
+    public float trailUpdateInterval = 0.1f; // Интервал обновления
+
+    [Header("=== НАСТРОЙКИ ОТОБРАЖЕНИЯ ===")]
+    public float lineWidth = 0.05f;
+    public int trailMaxPoints = 100;
+
+    private SlimeCharacterController slimeController;
+    private LineRenderer boundsRenderer;
+    private LineRenderer trailRenderer;
+    private List<Vector3> trailPositions = new List<Vector3>();
+    private float lastTrailUpdateTime;
+    private Camera mainCamera;
+
+    void Start()
+    {
+        slimeController = GetComponent<SlimeCharacterController>();
+        mainCamera = Camera.main;
+
+        CreateBoundsVisual();
+        CreateTrailVisual();
+
+        lastTrailUpdateTime = Time.time;
+    }
+
+    void CreateBoundsVisual()
+    {
+        GameObject boundsObj = new GameObject("BoundsVisualizer");
+        boundsObj.transform.SetParent(transform);
+        boundsObj.transform.localPosition = Vector3.zero;
+
+        boundsRenderer = boundsObj.AddComponent<LineRenderer>();
+        boundsRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        boundsRenderer.startColor = boundsColor;
+        boundsRenderer.endColor = boundsColor;
+        boundsRenderer.startWidth = lineWidth;
+        boundsRenderer.endWidth = lineWidth;
+        boundsRenderer.loop = true;
+        boundsRenderer.useWorldSpace = true;
+    }
+
+    void CreateTrailVisual()
+    {
+        GameObject trailObj = new GameObject("TrailVisualizer");
+        trailObj.transform.SetParent(transform);
+        trailObj.transform.localPosition = Vector3.zero;
+
+        trailRenderer = trailObj.AddComponent<LineRenderer>();
+        trailRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        trailRenderer.startColor = trailColor;
+        trailRenderer.endColor = trailColor;
+        trailRenderer.startWidth = lineWidth * 0.7f;
+        trailRenderer.endWidth = lineWidth * 0.3f;
+        trailRenderer.loop = false;
+        trailRenderer.useWorldSpace = true;
+    }
+
+    void Update()
+    {
+        if (slimeController == null) return;
+
+        UpdateBoundsVisual();
+        UpdateTrailVisual();
+    }
+
+    void UpdateBoundsVisual()
+    {
+        if (!showBounds || boundsRenderer == null) return;
+
+        // Вычисляем габариты на основе крайних узлов
+        Vector2 minBounds = Vector2.positiveInfinity;
+        Vector2 maxBounds = Vector2.negativeInfinity;
+
+        // Проверяем все узлы всех слоев
+        CheckNodesBounds(slimeController.coreNodes, ref minBounds, ref maxBounds);
+        CheckNodesBounds(slimeController.middleNodes, ref minBounds, ref maxBounds);
+        CheckNodesBounds(slimeController.surfaceNodes, ref minBounds, ref maxBounds);
+
+        // Если узлов нет, используем центр
+        if (minBounds == Vector2.positiveInfinity)
+        {
+            minBounds = transform.position;
+            maxBounds = transform.position;
+        }
+
+        // Создаем прямоугольник габаритов
+        Vector3[] boundsPoints = new Vector3[5];
+        boundsPoints[0] = new Vector3(minBounds.x, minBounds.y, 0);
+        boundsPoints[1] = new Vector3(maxBounds.x, minBounds.y, 0);
+        boundsPoints[2] = new Vector3(maxBounds.x, maxBounds.y, 0);
+        boundsPoints[3] = new Vector3(minBounds.x, maxBounds.y, 0);
+        boundsPoints[4] = boundsPoints[0]; // Замыкаем прямоугольник
+
+        boundsRenderer.positionCount = 5;
+        boundsRenderer.SetPositions(boundsPoints);
+    }
+
+    void CheckNodesBounds(List<Rigidbody2D> nodes, ref Vector2 minBounds, ref Vector2 maxBounds)
+    {
+        foreach (var node in nodes)
+        {
+            if (node != null && node.gameObject.activeInHierarchy)
+            {
+                Vector2 nodePos = node.position;
+                minBounds = Vector2.Min(minBounds, nodePos);
+                maxBounds = Vector2.Max(maxBounds, nodePos);
+            }
+        }
+    }
+
+    void UpdateTrailVisual()
+    {
+        if (!showTrail || trailRenderer == null) return;
+
+        // Добавляем новую точку через интервалы
+        if (Time.time - lastTrailUpdateTime >= trailUpdateInterval)
+        {
+            AddTrailPoint(transform.position);
+            lastTrailUpdateTime = Time.time;
+        }
+
+        // Удаляем старые точки
+        RemoveOldTrailPoints();
+
+        // Обновляем LineRenderer
+        UpdateTrailRenderer();
+    }
+
+    void AddTrailPoint(Vector3 position)
+    {
+        trailPositions.Add(position);
+
+        // Ограничиваем максимальное количество точек
+        if (trailPositions.Count > trailMaxPoints)
+        {
+            trailPositions.RemoveAt(0);
+        }
+    }
+
+    void RemoveOldTrailPoints()
+    {
+        float currentTime = Time.time;
+        float removeTime = currentTime - trailDuration;
+
+        // Удаляем точки, которые старше trailDuration
+        for (int i = trailPositions.Count - 1; i >= 0; i--)
+        {
+            // В реальной реализации нужно хранить время каждой точки
+            // Для упрощения удаляем старые точки с начала списка
+            if (trailPositions.Count > trailMaxPoints * 0.5f)
+            {
+                trailPositions.RemoveAt(0);
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    void UpdateTrailRenderer()
+    {
+        if (trailPositions.Count < 2)
+        {
+            trailRenderer.positionCount = 0;
+            return;
+        }
+
+        trailRenderer.positionCount = trailPositions.Count;
+        for (int i = 0; i < trailPositions.Count; i++)
+        {
+            trailRenderer.SetPosition(i, trailPositions[i]);
+        }
+    }
+
+    // Методы для управления визуализацией (можно вызывать из других скриптов)
+    public void SetBoundsVisible(bool visible)
+    {
+        showBounds = visible;
+        if (boundsRenderer != null)
+            boundsRenderer.enabled = visible;
+    }
+
+    public void SetTrailVisible(bool visible)
+    {
+        showTrail = visible;
+        if (trailRenderer != null)
+            trailRenderer.enabled = visible;
+    }
+
+    public void ClearTrail()
+    {
+        trailPositions.Clear();
+        if (trailRenderer != null)
+            trailRenderer.positionCount = 0;
+    }
+
+    // Визуализация в редакторе для настройки
+    void OnDrawGizmosSelected()
+    {
+        if (!Application.isPlaying) return;
+
+        // Показываем радиусы в редакторе
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, slimeController.autoGatherRadius);
+
+        // Показываем крайние точки габаритов
+        if (showBounds)
+        {
+            Gizmos.color = boundsColor;
+            Vector2 center = transform.position;
+            float maxDistance = 0f;
+
+            // Находим самый дальний узел
+            maxDistance = FindFurthestNodeDistance();
+
+            Gizmos.DrawWireSphere(center, maxDistance);
+        }
+    }
+
+    float FindFurthestNodeDistance()
+    {
+        float maxDistance = 0f;
+        Vector2 center = transform.position;
+
+        CheckFurthestNodes(slimeController.coreNodes, center, ref maxDistance);
+        CheckFurthestNodes(slimeController.middleNodes, center, ref maxDistance);
+        CheckFurthestNodes(slimeController.surfaceNodes, center, ref maxDistance);
+
+        return maxDistance;
+    }
+
+    void CheckFurthestNodes(List<Rigidbody2D> nodes, Vector2 center, ref float maxDistance)
+    {
+        foreach (var node in nodes)
+        {
+            if (node != null)
+            {
+                float distance = Vector2.Distance(center, node.position);
+                if (distance > maxDistance)
+                    maxDistance = distance;
+            }
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\abilities\Acid Bullet Shot.cs
+================================================================================
+
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "Ability_AcidBulletShot", menuName = "Slime Cores/Abilities/AcidBulletShot")]
+public class AcidBulletShot : CoreAbility
+{
+    [Header("Параметры стрельбы")]
+    public float bulletSpeed = 15f;
+    public float bulletLifetime = 3f;
+    public float bulletDamage = 10f;
+    public float spawnOffset = 0.3f;
+
+    [Header("Префабы и эффекты")]
+    public GameObject acidBulletPrefab;
+    public LayerMask collisionLayers = ~0;
+
+    public override void ExecuteAbility()
+    {
+        if (!CanExecute() || acidBulletPrefab == null)
+        {
+            Debug.LogError("AcidBulletShot cannot execute: " +
+                         (acidBulletPrefab == null ? "Prefab not assigned" : "Cooldown or controller issue"));
+            return;
+        }
+
+        // Получаем направление к мыши
+        Vector2 shootDirection = GetMouseDirection();
+        if (shootDirection == Vector2.zero)
+        {
+            shootDirection = Vector2.right; // Направление по умолчанию
+        }
+
+        // Получаем позицию спауна на краю коллайдера слизи
+        Vector2 spawnPosition = GetShootSpawnPosition(shootDirection, spawnOffset);
+
+        // Создаем пулю
+        CreateBullet(spawnPosition, shootDirection);
+
+        // Эффекты каста
+        PlayCastEffects(spawnPosition);
+
+        // Запускаем кулдаун
+        StartCooldown();
+
+        Debug.Log($"Acid bullet shot towards: {shootDirection} from position: {spawnPosition}");
+    }
+
+    private void CreateBullet(Vector2 spawnPosition, Vector2 direction)
+    {
+        GameObject bullet = Instantiate(acidBulletPrefab, spawnPosition, Quaternion.identity);
+
+        // Направляем пулю в сторону мыши
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+        bullet.transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+
+        // Инициализируем контроллер пули
+        AcidBulletController bulletController = bullet.GetComponent<AcidBulletController>();
+        if (bulletController != null)
+        {
+            bulletController.Initialize(direction, bulletSpeed, bulletLifetime, bulletDamage, collisionLayers);
+        }
+        else
+        {
+            Debug.LogError("AcidBulletController component is missing on the prefab!");
+            // Добавляем контроллер автоматически если забыли
+            bulletController = bullet.AddComponent<AcidBulletController>();
+            bulletController.Initialize(direction, bulletSpeed, bulletLifetime, bulletDamage, collisionLayers);
+        }
+    }
+
+    public override bool CanExecute()
+    {
+        return base.CanExecute() && acidBulletPrefab != null;
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\abilities\AcidBulletController.cs
+================================================================================
+
+using UnityEngine;
+
+public class AcidBulletController : MonoBehaviour
+{
+    [Header("Bullet Components")]
+    public GameObject hitEffect;
+    public AudioClip hitSound;
+
+    private Vector2 direction;
+    private float speed;
+    private float lifetime;
+    private float damage;
+    private LayerMask collisionMask;
+
+    private Rigidbody2D rb;
+    private bool hasHit = false;
+    private float creationTime;
+
+    public void Initialize(Vector2 moveDirection, float moveSpeed, float bulletLifetime, float bulletDamage, LayerMask collisionLayers)
+    {
+        direction = moveDirection.normalized;
+        speed = moveSpeed;
+        lifetime = bulletLifetime;
+        damage = bulletDamage;
+        collisionMask = collisionLayers;
+        creationTime = Time.time;
+
+        rb = GetComponent<Rigidbody2D>();
+        if (rb == null)
+        {
+            rb = gameObject.AddComponent<Rigidbody2D>();
+            rb.gravityScale = 0f;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
+
+        // Уничтожаем через время
+        Destroy(gameObject, lifetime);
+
+        // Начальная скорость
+        if (rb != null)
+        {
+            rb.linearVelocity = direction * speed;
+        }
+    }
+
+    private void Update()
+    {
+        // Автоматическое уничтожение если пуля существует слишком долго
+        if (Time.time - creationTime > lifetime && !hasHit)
+        {
+            Destroy(gameObject);
+        }
+    }
+
+    private void FixedUpdate()
+    {
+        if (rb != null && !hasHit)
+        {
+            // Поддерживаем постоянную скорость
+            rb.linearVelocity = direction * speed;
+        }
+    }
+
+    private void OnTriggerEnter2D(Collider2D collision)
+    {
+        if (hasHit) return;
+
+        // Игнорируем триггеры и самого игрока
+        if (collision.isTrigger || collision.CompareTag("Player"))
+            return;
+
+        // Проверяем слой столкновения
+        if (((1 << collision.gameObject.layer) & collisionMask) != 0)
+        {
+            hasHit = true;
+
+            // Наносим урон если есть здоровье
+            Health health = collision.GetComponent<Health>();
+            if (health != null)
+            {
+                health.TakeDamage(damage);
+                Debug.Log($"Acid bullet hit {collision.name} for {damage} damage");
+            }
+
+            // Визуальные и звуковые эффекты при попадании
+            CreateHitEffect();
+
+            // Уничтожаем пулю
+            Destroy(gameObject);
+        }
+    }
+
+    private void CreateHitEffect()
+    {
+        // Визуальный эффект
+        if (hitEffect != null)
+        {
+            GameObject effect = Instantiate(hitEffect, transform.position, Quaternion.identity);
+            Destroy(effect, 2f);
+        }
+
+        // Звуковой эффект
+        if (hitSound != null)
+        {
+            AudioSource.PlayClipAtPoint(hitSound, transform.position);
+        }
+    }
+
+    // Визуализация в редакторе
+    private void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.green;
+        Gizmos.DrawWireSphere(transform.position, 0.1f);
+        Gizmos.color = Color.red;
+        Gizmos.DrawLine(transform.position, transform.position + (Vector3)direction * 0.5f);
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\IInteractable.cs
+================================================================================
+
+// IInteractable.cs
+using UnityEngine;
+
+public interface IInteractable
+{
+    string GetInteractionText();
+    void OnInteract(GameObject interactor);
+    bool CanInteract(GameObject interactor);
+    void OnHighlightStart(GameObject interactor);
+    void OnHighlightEnd(GameObject interactor);
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\Interactable.cs
+================================================================================
+
+// Interactable.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+public class Interactable : MonoBehaviour
+{
+    [Header("Base Interactable Settings")]
+    [SerializeField] private float interactionRadius = 2f;
+    [SerializeField] private bool showGizmos = true;
+    [SerializeField] private Color gizmoColor = Color.cyan;
+
+    [Header("Interaction Settings")]
+    [SerializeField] private string interactionText = "Interact";
+    [SerializeField] private bool requireLineOfSight = true;
+    [SerializeField] private LayerMask obstacleLayers = 1;
+
+    // События для кастомной логики
+    public System.Action<GameObject> OnInteractEvent;
+    public System.Action<GameObject> OnHighlightEvent;
+    public System.Action<GameObject> OnUnhighlightEvent;
+
+    private List<IInteractable> interactableModules = new List<IInteractable>();
+    private bool isHighlighted = false;
+
+    public float InteractionRadius => interactionRadius;
+    public string InteractionText => interactionText;
+
+    private void Awake()
+    {
+        // Автоматически находим все модули IInteractable на этом GameObject
+        interactableModules.AddRange(GetComponents<IInteractable>());
+    }
+
+    public void Interact(GameObject interactor)
+    {
+        // Вызываем базовые события
+        OnInteractEvent?.Invoke(interactor);
+
+        // Вызываем все модули IInteractable
+        foreach (var module in interactableModules)
+        {
+            if (module.CanInteract(interactor))
+            {
+                module.OnInteract(interactor);
+            }
+        }
+    }
+
+    public void Highlight(GameObject interactor)
+    {
+        if (isHighlighted) return;
+
+        isHighlighted = true;
+        OnHighlightEvent?.Invoke(interactor);
+
+        foreach (var module in interactableModules)
+        {
+            module.OnHighlightStart(interactor);
+        }
+    }
+
+    public void Unhighlight(GameObject interactor)
+    {
+        if (!isHighlighted) return;
+
+        isHighlighted = false;
+        OnUnhighlightEvent?.Invoke(interactor);
+
+        foreach (var module in interactableModules)
+        {
+            module.OnHighlightEnd(interactor);
+        }
+    }
+
+    public bool CanInteract(GameObject interactor)
+    {
+        // Проверка расстояния
+        float distance = Vector3.Distance(transform.position, interactor.transform.position);
+        if (distance > interactionRadius) return false;
+
+        // Проверка линии видимости
+        if (requireLineOfSight)
+        {
+            Vector3 direction = (transform.position - interactor.transform.position).normalized;
+            if (Physics.Raycast(interactor.transform.position, direction, out RaycastHit hit, interactionRadius, obstacleLayers))
+            {
+                if (hit.collider.gameObject != gameObject) return false;
+            }
+        }
+
+        // Проверка модулей
+        foreach (var module in interactableModules)
+        {
+            if (!module.CanInteract(interactor)) return false;
+        }
+
+        return true;
+    }
+
+    public string GetInteractionText(GameObject interactor)
+    {
+        // Если есть модули, используем текст первого доступного модуля
+        foreach (var module in interactableModules)
+        {
+            if (module.CanInteract(interactor))
+            {
+                return module.GetInteractionText();
+            }
+        }
+
+        return interactionText;
+    }
+
+    // Визуализация радиуса в редакторе
+    private void OnDrawGizmosSelected()
+    {
+        if (!showGizmos) return;
+
+        Gizmos.color = gizmoColor;
+        Gizmos.DrawWireSphere(transform.position, interactionRadius);
+
+        // Рисуем иконку для лучшей видимости
+        Gizmos.color = new Color(gizmoColor.r, gizmoColor.g, gizmoColor.b, 0.3f);
+        Gizmos.DrawSphere(transform.position, 0.1f);
+    }
+
+    // Добавление модулей во время выполнения
+    public void RegisterInteractableModule(IInteractable module)
+    {
+        if (!interactableModules.Contains(module))
+        {
+            interactableModules.Add(module);
+        }
+    }
+
+    public void UnregisterInteractableModule(IInteractable module)
+    {
+        interactableModules.Remove(module);
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\InventoryTEMP.cs
+================================================================================
+
+// InventorySystem.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+public class InventorySystem : MonoBehaviour
+{
+    public static InventorySystem Instance { get; private set; }
+
+    [Header("Inventory Settings")]
+    [SerializeField] private int maxUniqueItems = 20;
+
+    private Dictionary<string, int> stackedItems = new Dictionary<string, int>();
+    private List<PickupInteractable> uniqueItems = new List<PickupInteractable>();
+
+    private void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+            // Раскомментируйте если нужно сохранять между сценами:
+            // DontDestroyOnLoad(gameObject);
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
+
+    public void AddItem(PickupInteractable item)
+    {
+        if (item.IsStackable)
+        {
+            AddStackableItem(item);
+        }
+        else
+        {
+            AddUniqueItem(item);
+        }
+
+        Debug.Log($"Item added: {item.ItemId}");
+        // Здесь можно вызвать событие для обновления UI
+    }
+
+    private void AddStackableItem(PickupInteractable item)
+    {
+        if (stackedItems.ContainsKey(item.ItemId))
+        {
+            stackedItems[item.ItemId] += item.StackAmount;
+        }
+        else
+        {
+            stackedItems[item.ItemId] = item.StackAmount;
+        }
+
+        // Уничтожаем физический объект для стакируемых предметов
+        Destroy(item.gameObject);
+    }
+
+    private void AddUniqueItem(PickupInteractable item)
+    {
+        if (uniqueItems.Count >= maxUniqueItems)
+        {
+            Debug.LogWarning("Inventory full! Cannot add unique item.");
+            return;
+        }
+
+        uniqueItems.Add(item);
+        // Не уничтожаем - предмет остается видимым в контейнере
+    }
+
+    public bool HasItem(string itemId)
+    {
+        return stackedItems.ContainsKey(itemId) && stackedItems[itemId] > 0 ||
+               uniqueItems.Exists(item => item.ItemId == itemId);
+    }
+
+    public int GetItemCount(string itemId)
+    {
+        if (stackedItems.ContainsKey(itemId))
+            return stackedItems[itemId];
+
+        return uniqueItems.FindAll(item => item.ItemId == itemId).Count;
+    }
+
+    public void RemoveItem(string itemId, int amount = 1)
+    {
+        if (stackedItems.ContainsKey(itemId))
+        {
+            stackedItems[itemId] = Mathf.Max(0, stackedItems[itemId] - amount);
+            if (stackedItems[itemId] == 0)
+                stackedItems.Remove(itemId);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\ItemPickup.cs
+================================================================================
+
+// PickupInteractable.cs
+using UnityEngine;
+using System.Collections;
+
+[RequireComponent(typeof(Collider2D))]
+public class PickupInteractable : MonoBehaviour, IInteractable
+{
+    [Header("Pickup Settings")]
+    [SerializeField] private bool useGlobalScale = true;
+    [SerializeField] private float customScaleReduction = 0.2f;
+    [SerializeField] private string itemId = "Item";
+    [SerializeField] private bool isStackable = false;
+    [SerializeField] private int stackAmount = 1;
+
+    [Header("Container Settings")]
+    [SerializeField] private string containerTag = "Player";
+    [SerializeField] private Vector3 localOffset = Vector3.zero;
+
+    [Header("Floating Animation")]
+    [SerializeField] private float floatHeight = 0.3f;
+    [SerializeField] private float floatSpeed = 2f;
+    [SerializeField] private float rotationSpeed = 45f;
+    [SerializeField] private AnimationCurve floatCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
+
+    private Transform container;
+    private Vector3 originalScale;
+    private bool isPickedUp = false;
+    private Vector3 baseLocalPosition;
+    private Collider2D itemCollider;
+    private Rigidbody2D rb;
+
+    // Public properties for other systems
+    public string ItemId => itemId;
+    public bool IsStackable => isStackable;
+    public int StackAmount => stackAmount;
+    public bool IsPickedUp => isPickedUp;
+
+    private void Awake()
+    {
+        itemCollider = GetComponent<Collider2D>();
+        rb = GetComponent<Rigidbody2D>();
+        originalScale = transform.localScale;
+    }
+
+    public string GetInteractionText()
+    {
+        return $"Pick up {itemId}";
+    }
+
+    public void OnInteract(GameObject interactor)
+    {
+        if (isPickedUp) return;
+
+        if (FindContainer(interactor))
+        {
+            StartCoroutine(PickupAnimation());
+        }
+    }
+
+    public bool CanInteract(GameObject interactor)
+    {
+        return !isPickedUp && FindContainer(interactor);
+    }
+
+    public void OnHighlightStart(GameObject interactor)
+    {
+        // Визуальная обратная связь при наведении
+        transform.localScale = originalScale * 1.1f;
+    }
+
+    public void OnHighlightEnd(GameObject interactor)
+    {
+        transform.localScale = originalScale;
+    }
+
+    private bool FindContainer(GameObject interactor)
+    {
+        if (container != null) return true;
+
+        GameObject containerObj = GameObject.FindGameObjectWithTag(containerTag);
+        if (containerObj != null && containerObj.GetComponent<Collider2D>() != null)
+        {
+            container = containerObj.transform;
+            return true;
+        }
+
+        return false;
+    }
+
+    private IEnumerator PickupAnimation()
+    {
+        isPickedUp = true;
+
+        // Отключаем физику и коллизии
+        if (itemCollider != null) itemCollider.enabled = false;
+        if (rb != null) rb.simulated = false;
+
+        // Вычисляем конечный масштаб
+        float targetScale = useGlobalScale ?
+            PickupManager.GlobalScaleReduction : customScaleReduction;
+        Vector3 finalScale = originalScale * targetScale;
+
+        // Анимация подбора
+        float duration = 0.6f;
+        float elapsed = 0f;
+        Vector3 startPosition = transform.position;
+        Vector3 startScale = transform.localScale;
+
+        // Вычисляем позицию внутри контейнера
+        Vector3 containerLocalPos = GetPositionInsideContainer();
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            float curveT = floatCurve.Evaluate(t);
+
+            // Плавное перемещение к контейнеру
+            transform.position = Vector3.Lerp(startPosition,
+                container.position + containerLocalPos, curveT);
+
+            // Плавное масштабирование
+            transform.localScale = Vector3.Lerp(startScale, finalScale, curveT);
+
+            yield return null;
+        }
+
+        // Делаем дочерним объектом контейнера
+        transform.SetParent(container);
+        transform.localPosition = containerLocalPos;
+        baseLocalPosition = containerLocalPos;
+
+        // Запускаем анимацию плавания
+        StartCoroutine(FloatingAnimation());
+
+        // Уведомляем систему инвентаря
+        InventorySystem.Instance?.AddItem(this);
+    }
+
+    private IEnumerator FloatingAnimation()
+    {
+        float time = 0f;
+
+        while (isPickedUp && container != null)
+        {
+            time += Time.deltaTime;
+
+            // Вертикальное плавающее движение
+            float yOffset = Mathf.Sin(time * floatSpeed) * floatHeight;
+            Vector3 newPosition = baseLocalPosition + new Vector3(0, yOffset, 0);
+            transform.localPosition = newPosition;
+
+            // Медленное вращение
+            transform.Rotate(0, 0, rotationSpeed * Time.deltaTime);
+
+            yield return null;
+        }
+    }
+
+    private Vector3 GetPositionInsideContainer()
+    {
+        Collider2D containerCollider = container.GetComponent<Collider2D>();
+        if (containerCollider == null) return localOffset;
+
+        // Генерируем случайную позицию внутри коллайдера контейнера
+        Vector2 randomPoint = GetRandomPointInCollider(containerCollider);
+        return container.InverseTransformPoint(randomPoint) + localOffset;
+    }
+
+    private Vector2 GetRandomPointInCollider(Collider2D collider)
+    {
+        if (collider is CircleCollider2D circleCollider)
+        {
+            // Для круглого коллайдера
+            Vector2 center = circleCollider.bounds.center;
+            float radius = circleCollider.radius * Mathf.Max(
+                circleCollider.transform.lossyScale.x,
+                circleCollider.transform.lossyScale.y);
+
+            return center + Random.insideUnitCircle * radius;
+        }
+        else if (collider is BoxCollider2D boxCollider)
+        {
+            // Для прямоугольного коллайдера
+            Bounds bounds = boxCollider.bounds;
+            return new Vector2(
+                Random.Range(bounds.min.x, bounds.max.x),
+                Random.Range(bounds.min.y, bounds.max.y)
+            );
+        }
+        else
+        {
+            // Для других типов коллайдеров используем bounds
+            Bounds bounds = collider.bounds;
+            return new Vector2(
+                Random.Range(bounds.min.x, bounds.max.x),
+                Random.Range(bounds.min.y, bounds.max.y)
+            );
+        }
+    }
+
+    // Метод для сброса предмета (для будущей механики выбрасывания)
+    public void DropItem(Vector3 position)
+    {
+        if (!isPickedUp) return;
+
+        StopAllCoroutines();
+        transform.SetParent(null);
+        transform.position = position;
+        transform.localScale = originalScale;
+
+        if (itemCollider != null) itemCollider.enabled = true;
+        if (rb != null) rb.simulated = true;
+
+        isPickedUp = false;
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\PickupManager.cs
+================================================================================
+
+// PickupManager.cs
+using UnityEngine;
+
+public static class PickupManager
+{
+    public static float GlobalScaleReduction { get; set; } = 0.2f;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void Initialize()
+    {
+        // ”становка значений по умолчанию
+        GlobalScaleReduction = 0.2f;
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Interact\PlayerInteract.cs
+================================================================================
+
+// PlayerInteractor.cs
+using UnityEngine;
+using System.Collections.Generic;
+
+public class PlayerInteractor : MonoBehaviour
+{
+    [Header("Interaction Settings")]
+    [SerializeField] private KeyCode interactionKey = KeyCode.F;
+    [SerializeField] private float checkRate = 0.1f;
+    [SerializeField] private LayerMask interactableLayers = -1;
+
+    [Header("UI References")]
+    [SerializeField] private UnityEngine.UI.Text interactionTextUI;
+
+    private Interactable currentInteractable;
+    private float lastCheckTime;
+    private Camera playerCamera;
+
+    private void Start()
+    {
+        playerCamera = Camera.main;
+    }
+
+    private void Update()
+    {
+        // Проверяем взаимодействия с заданной частотой
+        if (Time.time - lastCheckTime >= checkRate)
+        {
+            FindNearestInteractable();
+            lastCheckTime = Time.time;
+        }
+
+        // Обработка ввода
+        if (Input.GetKeyDown(interactionKey) && currentInteractable != null)
+        {
+            if (currentInteractable.CanInteract(gameObject))
+            {
+                currentInteractable.Interact(gameObject);
+            }
+        }
+
+        UpdateUI();
+    }
+
+    private void FindNearestInteractable()
+    {
+        Interactable nearestInteractable = null;
+        float nearestDistance = float.MaxValue;
+
+        // Находим все Interactable объекты в сцене
+        var allInteractables = FindObjectsOfType<Interactable>();
+
+        foreach (var interactable in allInteractables)
+        {
+            if (interactable.CanInteract(gameObject))
+            {
+                float distance = Vector3.Distance(transform.position, interactable.transform.position);
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearestInteractable = interactable;
+                }
+            }
+        }
+
+        // Обновляем текущий interactable
+        if (currentInteractable != nearestInteractable)
+        {
+            if (currentInteractable != null)
+            {
+                currentInteractable.Unhighlight(gameObject);
+            }
+
+            currentInteractable = nearestInteractable;
+
+            if (currentInteractable != null)
+            {
+                currentInteractable.Highlight(gameObject);
+            }
+        }
+    }
+
+    private void UpdateUI()
+    {
+        if (interactionTextUI == null) return;
+
+        if (currentInteractable != null && currentInteractable.CanInteract(gameObject))
+        {
+            interactionTextUI.text = $"[{interactionKey}] {currentInteractable.GetInteractionText(gameObject)}";
+            interactionTextUI.gameObject.SetActive(true);
+        }
+        else
+        {
+            interactionTextUI.gameObject.SetActive(false);
+        }
+    }
+
+    // Для отладки
+    private void OnDrawGizmos()
+    {
+        if (currentInteractable != null)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawLine(transform.position, currentInteractable.transform.position);
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Menu\EscapeLoader.cs
+================================================================================
+
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class SimpleEscapeLoader : MonoBehaviour
+{
+    [SerializeField] private string targetSceneName = "MainMenu"; // —цена дл€ загрузки
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if (!string.IsNullOrEmpty(targetSceneName))
+            {
+                SceneManager.LoadScene(targetSceneName);
+            }
+            else
+            {
+                Debug.LogError("Target scene name is not set!");
+            }
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Menu\ExetButton.cs
+================================================================================
+
+using UnityEngine;
+
+public class QuitApplication : MonoBehaviour
+{
+    // Метод для закрытия приложения
+    public void QuitGame()
+    {
+        // Закрыть приложение
+        Application.Quit();
+
+        // Для тестирования в редакторе Unity
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
+    }
+
+    // Альтернативный метод с подтверждением (опционально)
+    public void QuitWithConfirmation()
+    {
+        // Можно добавить окно подтверждения здесь
+        // Для простоты сразу выходим
+        QuitGame();
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\Menu\PlayButton.cs
+================================================================================
+
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class ButtonSceneLoader : MonoBehaviour
+{
+    [SerializeField] private string sceneName; // Имя сцены для загрузки
+
+    // Метод который будет вызываться при нажатии на кнопку
+    public void LoadScene()
+    {
+        if (!string.IsNullOrEmpty(sceneName))
+        {
+            SceneManager.LoadScene(sceneName);
+        }
+        else
+        {
+            Debug.LogError("Scene name is not specified!");
+        }
+    }
+
+    // Альтернативный метод для загрузки по индексу
+    public void LoadSceneByIndex(int sceneIndex)
+    {
+        if (sceneIndex >= 0 && sceneIndex < SceneManager.sceneCountInBuildSettings)
+        {
+            SceneManager.LoadScene(sceneIndex);
+        }
+        else
+        {
+            Debug.LogError("Invalid scene index: " + sceneIndex);
+        }
+    }
+
+    // Метод для загрузки сцены по имени (можно вызывать из инспектора)
+    public void LoadSceneByName(string name)
+    {
+        if (!string.IsNullOrEmpty(name))
+        {
+            SceneManager.LoadScene(name);
+        }
+        else
+        {
+            Debug.LogError("Scene name is empty!");
+        }
+    }
+}
+
+================================================================================
+ФАЙЛ: C:\Users\mexanik01\Documents\GameDev\Ozeway_001\Ozeway\Assets\Scripts\shader\SlimeMetaballRenderer.cs
+================================================================================
+
+using UnityEngine;
+using System.Collections.Generic;
+
+[RequireComponent(typeof(SlimeCharacterController))]
+[RequireComponent(typeof(MeshFilter))]
+[RequireComponent(typeof(MeshRenderer))]
+public class SlimeMetaballRenderer : MonoBehaviour
+{
+    [Header("Настройки метабол")]
+    [Tooltip("Радиус влияния для узлов ядра")]
+    public float coreRadius = 1.2f;
+    [Tooltip("Радиус влияния для средних узлов")]
+    public float middleRadius = 1.0f;
+    [Tooltip("Радиус влияния для внешних узлов")]
+    public float surfaceRadius = 0.8f;
+    [Tooltip("Максимальное расстояние между узлами контура. Если больше - создаются мнимые узлы для сглаживания.")]
+    public float maxNodeDistanceForPhantom = 1.5f;
+
+    [Header("Ссылки и преднастройки")]
+    [Tooltip("Материал, использующий SlimeMetaballShader")]
+    public Material slimeMaterial;
+
+    private SlimeCharacterController slimeController;
+    private MeshFilter meshFilter;
+    private MeshRenderer meshRenderer;
+    private Mesh quadMesh;
+
+    // Максимальное количество узлов, которое может обработать шейдер
+    private const int MAX_NODES = 256;
+    private Vector4[] nodePositionsArray = new Vector4[MAX_NODES];
+
+    // Идентификаторы свойств шейдера для производительности
+    private static readonly int NodePositionsID = Shader.PropertyToID("_NodePositions");
+    private static readonly int NodeCountID = Shader.PropertyToID("_NodeCount");
+    private static readonly int SlimeCenterID = Shader.PropertyToID("_SlimeCenter");
+    private static readonly int MaxRadiusID = Shader.PropertyToID("_MaxRadius");
+
+    void Start()
+    {
+        slimeController = GetComponent<SlimeCharacterController>();
+        meshFilter = GetComponent<MeshFilter>();
+        meshRenderer = GetComponent<MeshRenderer>();
+
+        meshRenderer.material = slimeMaterial;
+
+        CreateQuadMesh();
+        meshFilter.mesh = quadMesh;
+    }
+
+    void LateUpdate()
+    {
+        if (slimeController == null || slimeMaterial == null) return;
+
+        // 1. Подготовить все данные (включая мнимые узлы) для шейдера
+        float maxDistFromCenter = 0f;
+        int totalNodeCount = GenerateShaderNodeData(ref maxDistFromCenter);
+
+        if (totalNodeCount == 0)
+        {
+            meshRenderer.enabled = false;
+            return;
+        }
+
+        meshRenderer.enabled = true;
+
+        // 2. Рассчитать габариты на основе реальных узлов и обновить "холст"
+        Bounds bounds = CalculateRealNodeBounds();
+        UpdateQuadMesh(bounds);
+
+        // 3. Отправить финальные данные в материал/шейдер
+        slimeMaterial.SetVectorArray(NodePositionsID, nodePositionsArray);
+        slimeMaterial.SetInt(NodeCountID, totalNodeCount);
+        slimeMaterial.SetVector(SlimeCenterID, transform.position);
+        slimeMaterial.SetFloat(MaxRadiusID, maxDistFromCenter > 0.01f ? maxDistFromCenter : 1f);
+    }
+
+    /// <summary>
+    /// Собирает все реальные узлы, создает мнимые узлы в разрывах контура
+    /// и подготавливает финальный массив данных для отправки в шейдер.
+    /// </summary>
+    /// <returns>Общее количество узлов (реальных + мнимых) для шейдера.</returns>
+    private int GenerateShaderNodeData(ref float maxDistFromCenter)
+    {
+        var shaderNodes = new List<Vector4>(MAX_NODES);
+        Vector2 center = transform.position;
+
+        // --- 1. Добавляем узлы ядра и середины (они не нуждаются в сглаживании) ---
+        foreach (var node in slimeController.coreNodes)
+        {
+            if (node != null) shaderNodes.Add(new Vector4(node.position.x, node.position.y, 0, coreRadius));
+        }
+        foreach (var node in slimeController.middleNodes)
+        {
+            if (node != null) shaderNodes.Add(new Vector4(node.position.x, node.position.y, 0, middleRadius));
+        }
+
+        // --- 2. Обрабатываем узлы контура и создаем мнимые узлы в разрывах ---
+        var surfaceNodes = slimeController.surfaceNodes;
+        if (surfaceNodes.Count >= 2)
+        {
+            for (int i = 0; i < surfaceNodes.Count; i++)
+            {
+                Rigidbody2D currentNode = surfaceNodes[i];
+                if (currentNode == null) continue;
+
+                // Всегда добавляем текущий реальный узел
+                shaderNodes.Add(new Vector4(currentNode.position.x, currentNode.position.y, 0, surfaceRadius));
+
+                // "Зацикливаем" список, чтобы последний узел соединялся с первым
+                Rigidbody2D nextNode = surfaceNodes[(i + 1) % surfaceNodes.Count];
+                if (nextNode == null) continue;
+
+                float dist = Vector2.Distance(currentNode.position, nextNode.position);
+
+                // Если расстояние слишком большое, генерируем мнимые узлы между текущим и следующим
+                if (dist > maxNodeDistanceForPhantom)
+                {
+                    int phantomCount = Mathf.FloorToInt(dist / maxNodeDistanceForPhantom);
+                    for (int j = 1; j <= phantomCount; j++)
+                    {
+                        float t = (float)j / (phantomCount + 1);
+                        Vector2 phantomPos = Vector2.Lerp(currentNode.position, nextNode.position, t);
+                        // Мнимые узлы имеют тот же радиус, что и узлы контура
+                        shaderNodes.Add(new Vector4(phantomPos.x, phantomPos.y, 0, surfaceRadius));
+                    }
+                }
+            }
+        }
+        else // Если узлов контура слишком мало для анализа, просто добавляем их
+        {
+            foreach (var node in surfaceNodes)
+            {
+                if (node != null) shaderNodes.Add(new Vector4(node.position.x, node.position.y, 0, surfaceRadius));
+            }
+        }
+
+        // --- 3. Копируем финальный список в массив для шейдера и вычисляем максимальное расстояние от центра ---
+        maxDistFromCenter = 0f;
+        for (int i = 0; i < shaderNodes.Count; i++)
+        {
+            if (i >= MAX_NODES) break; // Защита от переполнения массива
+
+            nodePositionsArray[i] = shaderNodes[i];
+
+            float dist = Vector2.Distance(new Vector2(shaderNodes[i].x, shaderNodes[i].y), center);
+            if (dist > maxDistFromCenter)
+            {
+                maxDistFromCenter = dist;
+            }
+        }
+
+        return shaderNodes.Count;
+    }
+
+    /// <summary>
+    /// Вычисляет ограничивающую рамку (Bounds) только на основе реальных узлов.
+    /// </summary>
+    private Bounds CalculateRealNodeBounds()
+    {
+        var realNodes = new List<Rigidbody2D>();
+
+        AddValidNodesToList(slimeController.coreNodes, realNodes);
+        AddValidNodesToList(slimeController.middleNodes, realNodes);
+        AddValidNodesToList(slimeController.surfaceNodes, realNodes);
+
+        if (realNodes.Count == 0) return new Bounds(transform.position, Vector3.one);
+
+        // Инициализируем рамку позицией первого узла
+        var bounds = new Bounds(realNodes[0].position, Vector3.zero);
+        // Расширяем рамку, чтобы она включала все остальные узлы
+        for (int i = 1; i < realNodes.Count; i++)
+        {
+            bounds.Encapsulate(realNodes[i].position);
+        }
+
+        // Добавляем отступ, чтобы края слизи, отрисованные шейдером, не обрезались
+        float padding = Mathf.Max(coreRadius, middleRadius, surfaceRadius);
+        bounds.Expand(padding * 2);
+        return bounds;
+    }
+
+    /// <summary>
+    /// Вспомогательный метод для добавления не-пустых узлов в список.
+    /// </summary>
+    private void AddValidNodesToList(List<Rigidbody2D> source, List<Rigidbody2D> destination)
+    {
+        foreach (var node in source)
+        {
+            if (node != null)
+            {
+                destination.Add(node);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Создает базовый квадратный меш ("холст").
+    /// </summary>
+    private void CreateQuadMesh()
+    {
+        quadMesh = new Mesh
+        {
+            name = "SlimeCanvas",
+            vertices = new Vector3[4],
+            triangles = new int[] { 0, 1, 2, 2, 3, 0 },
+            uv = new Vector2[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) }
+        };
+        quadMesh.MarkDynamic();
+    }
+
+    /// <summary>
+    /// Обновляет вершины "холста", чтобы он всегда покрывал всю область слизи.
+    /// </summary>
+    private void UpdateQuadMesh(Bounds bounds)
+    {
+        Vector3 parentPosition = transform.position;
+        Vector3 center = bounds.center;
+        Vector3 size = bounds.size;
+
+        Vector3[] vertices = new Vector3[4];
+        // Вычисляем мировые координаты углов, а затем преобразуем их в локальные
+        vertices[0] = new Vector3(center.x - size.x / 2, center.y - size.y / 2, 0) - parentPosition;
+        vertices[1] = new Vector3(center.x - size.x / 2, center.y + size.y / 2, 0) - parentPosition;
+        vertices[2] = new Vector3(center.x + size.x / 2, center.y + size.y / 2, 0) - parentPosition;
+        vertices[3] = new Vector3(center.x + size.x / 2, center.y - size.y / 2, 0) - parentPosition;
+
+        quadMesh.vertices = vertices;
+        quadMesh.RecalculateBounds();
+    }
+}

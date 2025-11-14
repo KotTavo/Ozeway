@@ -19,6 +19,9 @@ public class SlimeCharacterController : MonoBehaviour
 
     [Header("=== НАСТРОЙКИ ДВИЖЕНИЯ ===")]
     public float moveSpeed = 8f;
+    public float airMoveSpeed = 5f; // Скорость в воздухе
+    public float airControlForce = 15f; // Сила контроля в воздухе
+    public float slopeDetectionRange = 1f; // Дистанция обнаружения наклона
     public float jumpInitialSpeed = 35f;
     public float jumpDecayRate = 0.85f;
     public float gravityMultiplier = 4.5f;
@@ -54,6 +57,9 @@ public class SlimeCharacterController : MonoBehaviour
 
     public LayerMask obstacleLayers = 1;
 
+    [Header("=== СЛОИ ДЛЯ ПРЫЖКА ===")]
+    public LayerMask jumpGroundLayers = 1; // Слои земли, которые учитываются для прыжка
+
     [Header("=== НОВАЯ СИСТЕМА ЛАЗАНИЯ (КОЛЛАЙДЕР) ===")]
     public float wallClimbSpeed = 6f;
     public float wallStickForce = 25f;
@@ -78,6 +84,10 @@ public class SlimeCharacterController : MonoBehaviour
     public float currentMass = 1f;
     public float currentSize = 1f;
     public Color slimeColor = new Color(0.2f, 0.8f, 0.3f, 0.9f);
+
+    [Header("=== СИСТЕМА ЯДЕР ===")]
+    public CoreInventory coreInventory;
+    public CoreOrbitController orbitController;
 
     // Node collections
     public List<Rigidbody2D> coreNodes { get; private set; } = new List<Rigidbody2D>();
@@ -121,12 +131,24 @@ public class SlimeCharacterController : MonoBehaviour
     private ContactPoint2D[] wallContacts = new ContactPoint2D[10];
     private int wallContactCount = 0;
 
+    // Система движения по наклонным поверхностям
+    private Vector2 groundNormal = Vector2.up;
+    private float currentSlopeAngle = 0f;
+    private bool isOnSlope = false;
+    private Vector2 slopePerpendicular = Vector2.right;
+
     void Start()
     {
         CreateCharacter();
         SetupOscillation();
         originalGravityScale = gravityMultiplier;
         lastCenterPosition = transform.position;
+
+        // Инициализация системы ядер
+        if (coreInventory == null)
+            coreInventory = GetComponent<CoreInventory>();
+        if (orbitController == null)
+            orbitController = GetComponent<CoreOrbitController>();
     }
 
     void CreateCharacter()
@@ -351,6 +373,36 @@ public class SlimeCharacterController : MonoBehaviour
 
         // Определение лазания по стенам
         UpdateWallClimbingState();
+
+        // Определение наклонных поверхностей
+        UpdateSlopeDetection();
+    }
+
+    void UpdateSlopeDetection()
+    {
+        isOnSlope = false;
+        groundNormal = Vector2.up;
+
+        if (IsOnGround())
+        {
+            // Используем луч для определения наклона поверхности под центром
+            RaycastHit2D hit = Physics2D.Raycast(centerBody.position, Vector2.down,
+                slopeDetectionRange, obstacleLayers);
+
+            if (hit.collider != null)
+            {
+                groundNormal = hit.normal;
+                currentSlopeAngle = Vector2.Angle(groundNormal, Vector2.up);
+                isOnSlope = currentSlopeAngle > 5f && currentSlopeAngle < 85f;
+
+                // Вычисляем перпендикуляр к наклону для движения
+                slopePerpendicular = new Vector2(-groundNormal.y, groundNormal.x);
+
+                // Визуализация в редакторе
+                Debug.DrawRay(hit.point, groundNormal * 1f, Color.blue);
+                Debug.DrawRay(centerBody.position, slopePerpendicular * 1f, Color.yellow);
+            }
+        }
     }
 
     void UpdateWallClimbingState()
@@ -642,13 +694,47 @@ public class SlimeCharacterController : MonoBehaviour
     {
         if (moveInput.magnitude > 0.1f && !isWallClimbing)
         {
-            float currentMoveSpeed = isCrouching ? moveSpeed * crouchSpeedMultiplier : moveSpeed;
+            // Определяем текущую скорость в зависимости от состояния
+            float currentMoveSpeed = GetCurrentMoveSpeed();
 
-            Vector2 targetVelocity = moveInput * currentMoveSpeed;
-            Vector2 velocityChange = targetVelocity - centerBody.linearVelocity;
+            // Корректируем направление движения на наклонных поверхностях
+            Vector2 adjustedMoveDirection = moveInput;
+            if (isOnSlope && IsOnGround())
+            {
+                // Проецируем вектор движения на направление вдоль склона
+                adjustedMoveDirection = Vector3.ProjectOnPlane(moveInput.normalized, groundNormal).normalized;
+            }
 
-            centerBody.AddForce(velocityChange * 20f);
+            Vector2 targetVelocity = adjustedMoveDirection * currentMoveSpeed;
+
+            // Применяем движение с разной силой в зависимости от состояния
+            if (IsOnGround())
+            {
+                // На земле - стандартное движение
+                Vector2 velocityChange = targetVelocity - centerBody.linearVelocity;
+                centerBody.AddForce(velocityChange * 20f);
+            }
+            else
+            {
+                // В воздухе - более слабое управление
+                centerBody.AddForce(moveInput * airControlForce);
+            }
         }
+    }
+
+    float GetCurrentMoveSpeed()
+    {
+        float baseSpeed = moveSpeed;
+
+        // Учитываем состояние приседания
+        if (isCrouching && IsOnGround())
+            baseSpeed *= crouchSpeedMultiplier;
+
+        // Учитываем состояние в воздухе
+        if (!IsOnGround() && !isOnWall && !isWallClimbing)
+            baseSpeed = airMoveSpeed;
+
+        return baseSpeed;
     }
 
     void ApplyGroundFriction()
@@ -959,8 +1045,48 @@ public class SlimeCharacterController : MonoBehaviour
 
     bool CanJump()
     {
+        // Проверяем, что хотя бы один узел касается выбранных слоев земли
+        if (!IsTouchingJumpGroundLayers())
+            return false;
+
         float groundPercentage = (float)surfaceGroundContactCount / surfaceNodesCount;
         return groundPercentage >= jumpGroundPercentage;
+    }
+
+    bool IsTouchingJumpGroundLayers()
+    {
+        // Проверяем все узлы на контакт с выбранными слоями земли
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        foreach (var node in coreNodes)
+        {
+            if (node != null)
+            {
+                Collider2D[] groundContacts = Physics2D.OverlapCircleAll(node.position, 0.1f, jumpGroundLayers);
+                if (groundContacts.Length > 0)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     public List<Rigidbody2D> GetNodesByLayer(int layerIndex)
@@ -999,6 +1125,32 @@ public class SlimeCharacterController : MonoBehaviour
                 Gizmos.DrawWireSphere(transform.position, 0.3f);
             }
         }
+
+        // Визуализация проверки слоев для прыжка
+        Gizmos.color = Color.cyan;
+        foreach (var node in surfaceNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+        foreach (var node in middleNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+        foreach (var node in coreNodes)
+        {
+            if (node != null)
+                Gizmos.DrawWireSphere(node.position, 0.1f);
+        }
+
+        // Визуализация обнаружения наклона
+        if (isOnSlope)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawRay(transform.position, groundNormal * 1f);
+            Gizmos.DrawRay(transform.position, slopePerpendicular * 1f);
+        }
     }
 
     public float GetGroundContactPercentage()
@@ -1029,5 +1181,15 @@ public class SlimeCharacterController : MonoBehaviour
     public bool IsWallClimbing()
     {
         return isWallClimbing;
+    }
+
+    public bool IsOnSlope()
+    {
+        return isOnSlope;
+    }
+
+    public float GetCurrentSlopeAngle()
+    {
+        return currentSlopeAngle;
     }
 }

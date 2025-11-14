@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: e8eb16092e5238d4d95416ff97b551cb
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - icon: {fileID: -8195971769872635587, guid: 597d37054e81bbd4cbfe02d99489fa58, type: 3}
+  - acidBulletPrefab: {fileID: 4202522847269054659, guid: 39e9f6daa45376d4d8ea1f3be5972286, type: 3}
+  - shootEffect: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
